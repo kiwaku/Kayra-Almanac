@@ -47,13 +47,13 @@ const { title = 'Kayra — Workshop Almanac' } = Astro.props;
       <div class="hint">Evidence [E] · Raw [R] · Effects Off (soon)</div>
     </footer>
 
-    <script src="/evidence-toggle.js" defer></script>
-    <script src="/raw-toggle.js" defer></script>
+    <script is:inline src="/evidence-toggle.js" defer></script>
+    <script is:inline src="/raw-toggle.js" defer></script>
     <div id="portal-overlay" hidden aria-hidden="true"></div>
-<script type="module">
+<script is:inline type="module">
   // Intercept top/left nav clicks tagged data-portal (no animation yet)
-  const overlay = document.getElementById('portal-overlay');
   function handle(e){
+    if(!e.target || !(e.target instanceof Element)) return;
     const a = e.target.closest('a[data-portal]');
     if(!a) return;
     // v1: show a no-op overlay briefly to verify wiring (kept hidden instantly)
@@ -62,8 +62,9 @@ const { title = 'Kayra — Workshop Almanac' } = Astro.props;
   document.addEventListener('click', handle);
 </script>
 
-<script>
-document.addEventListener('click', e=>{
+<script is:inline>
+document.addEventListener('click', function(e){
+  if(!e.target || !(e.target instanceof Element)) return;
   const a = e.target.closest('a.lightbox, a.thumb');
   if(!a) return;
   e.preventDefault();
@@ -73,9 +74,10 @@ document.addEventListener('click', e=>{
     lb.id = 'lightbox';
     lb.innerHTML = '<img alt=""><button aria-label="Close">×</button>';
     document.body.appendChild(lb);
-    lb.addEventListener('click', ()=> lb.hidden = true);
+    lb.addEventListener('click', function(){ if(lb) lb.hidden = true; });
   }
-  lb.querySelector('img').src = a.href;
+  const img = lb.querySelector('img');
+  if(img && a instanceof HTMLAnchorElement) img.src = a.href;
   lb.hidden = false;
 });
 </script>

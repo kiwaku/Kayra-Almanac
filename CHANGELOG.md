@@ -1,5 +1,12 @@
 # Changelog
 
+## Phase 7 - Seed Content (2025-10-24)
+- Added 3 featured projects: Himorogi (OS/security), RedLLM (AI/security), CREST-SNN (AI/hardware)
+- Added 5 logbook entries (2024-2025), one marked as anomaly
+- Added hardware content: Homunculus BOM and wiring pages
+- Added 1 technical notebook: Initrd pitfalls
+- Created placeholder images for all artifacts
+
 ## Phase 6 - Toggles & Portal Stub (2025-10-24)
 - Added evidence-toggle.js: [E] key dims prose, highlights artifacts
 - Added raw-toggle.js: [R] key toggles raw markdown <details> element

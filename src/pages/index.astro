@@ -14,7 +14,7 @@ const flagships = (await getCollection('projects')).filter(p => p.data.featured)
     <h1>Start Here</h1>
     <p class="lede">Three flagship builds with receipts.</p>
 
-    {flagships.map((project) => {
+    {await Promise.all(flagships.map(async (project) => {
       const { data } = project;
       const { Content } = await project.render();
       return (
@@ -30,7 +30,7 @@ const flagships = (await getCollection('projects')).filter(p => p.data.featured)
           </div>
         </article>
       );
-    })}
+    }))}
 
     <h3>Latest Logbook</h3>
     <ul class="loglist">

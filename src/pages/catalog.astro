@@ -12,7 +12,7 @@ const year = url.searchParams.get('year');
 
 const filtered = all.filter(p=>{
   const d = p.data;
-  return (!domain || d.domain.includes(domain)) &&
+  return (!domain || d.domain.includes(domain as any)) &&
          (!status || d.status===status) &&
          (!year || String(d.year)===year);
 });

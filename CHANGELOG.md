@@ -1,5 +1,16 @@
 # Changelog
 
+## Phase 5 - Pages (2025-10-24)
+- Created index.astro: homepage with featured projects and latest logbook
+- Created catalog.astro: filterable project index with query params
+- Created logbook.astro: chronological entries grouped by year, ALERT marker
+- Created gallery.astro: lazy-loaded image grid from all projects
+- Created hardware.astro: Homunculus build pages grouped by part
+- Created notebooks.astro: technical notes index
+- Created start-here.astro: 90-second tour and keyboard shortcuts
+- Created shrine.astro: minimal v1 stub
+- Created 404.astro: not found page
+
 ## Phase 4 - Core Components (2025-10-24)
 - Created ProofStrip: dynamic project counts, OS builds, last update date
 - Created LeftNav: navigation links with data-portal hooks

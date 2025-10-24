@@ -1,0 +1,83 @@
+---
+import '../styles/theme.css';
+import LeftNav from '../components/LeftNav.astro';
+import ProofStrip from '../components/ProofStrip.astro';
+const { title = 'Kayra — Workshop Almanac' } = Astro.props;
+---
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>{title}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Workshop Almanac: security, OS builds, AI eval, hardware logs.">
+    <link rel="icon" href="/favicon.ico" />
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Kayra — Workshop Almanac">
+    <meta property="og:description" content="Security, OS builds, AI eval, hardware logs.">
+    <meta property="og:image" content="/og-default.jpg">
+  </head>
+  <body>
+    <header class="header">
+      <div class="brand">Kayra — <span class="muted">Workshop Almanac</span></div>
+      <nav class="topnav">
+        <a href="/start-here" data-portal>Start Here</a>
+        <a href="/catalog" data-portal>Catalog</a>
+        <a href="/logbook" data-portal>Logbook</a>
+        <a href="/hardware" data-portal>Hardware</a>
+        <a href="/notebooks" data-portal>Notebooks</a>
+        <a href="/gallery" data-portal>Gallery</a>
+        <a href="/shrine" class="shrine" aria-label="Shrine (anomaly link)">⛩</a>
+      </nav>
+    </header>
+
+    <ProofStrip />
+
+    <main class="shell">
+      <aside class="left">
+        <LeftNav />
+      </aside>
+      <section class="content">
+        <slot />
+        <details class="raw"><summary>Raw Markdown</summary><!-- pre-embed at build if desired --></details>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div>© {new Date().getFullYear()} Kayra — v0.1 · <a href="/resume.pdf">Resume</a></div>
+      <div class="hint">Evidence [E] · Raw [R] · Effects Off (soon)</div>
+    </footer>
+
+    <script src="/evidence-toggle.js" defer></script>
+    <script src="/raw-toggle.js" defer></script>
+    <div id="portal-overlay" hidden aria-hidden="true"></div>
+<script type="module">
+  // Intercept top/left nav clicks tagged data-portal (no animation yet)
+  const overlay = document.getElementById('portal-overlay');
+  function handle(e){
+    const a = e.target.closest('a[data-portal]');
+    if(!a) return;
+    // v1: show a no-op overlay briefly to verify wiring (kept hidden instantly)
+    // v2: this is where we mount the shader + screenshot, then navigate.
+  }
+  document.addEventListener('click', handle);
+</script>
+
+<script>
+document.addEventListener('click', e=>{
+  const a = e.target.closest('a.lightbox, a.thumb');
+  if(!a) return;
+  e.preventDefault();
+  let lb = document.getElementById('lightbox');
+  if(!lb){
+    lb = document.createElement('div');
+    lb.id = 'lightbox';
+    lb.innerHTML = '<img alt=""><button aria-label="Close">×</button>';
+    document.body.appendChild(lb);
+    lb.addEventListener('click', ()=> lb.hidden = true);
+  }
+  lb.querySelector('img').src = a.href;
+  lb.hidden = false;
+});
+</script>
+  </body>
+</html>

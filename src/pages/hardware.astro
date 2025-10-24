@@ -1,0 +1,35 @@
+---
+import Base from '../layouts/SectionLayout.astro';
+import { getCollection } from 'astro:content';
+const parts = await getCollection('hardware');
+const grouped = parts.reduce((acc, p) => {
+  (acc[p.data.part] ||= []).push(p);
+  return acc;
+}, {} as Record<string, typeof parts>);
+---
+<Base title="Hardware — Homunculus">
+  <h1>Hardware: Homunculus</h1>
+  {Object.entries(grouped).map(async ([part, list]) => (
+    <>
+      <h2>{part.charAt(0).toUpperCase() + part.slice(1)}</h2>
+      {list.map(async (entry) => {
+        const { Content } = await entry.render();
+        return (
+          <article class="card">
+            <h3>{entry.data.title}</h3>
+            <Content />
+            {entry.data.images && (
+              <div class="images">
+                {entry.data.images.map(img => (
+                  <a href={img} class="lightbox thumb">
+                    <img src={img} alt={entry.data.title} loading="lazy" />
+                  </a>
+                ))}
+              </div>
+            )}
+          </article>
+        );
+      })}
+    </>
+  ))}
+</Base>

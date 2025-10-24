@@ -1,0 +1,42 @@
+---
+import Base from '../layouts/BaseLayout.astro';
+import { getCollection } from 'astro:content';
+import ArtifactRow from '../components/ArtifactRow.astro';
+
+const logbook = (await getCollection('logbook'))
+  .sort((a,b)=> a.data.date < b.data.date ? 1 : -1)
+  .slice(0,5);
+
+const flagships = (await getCollection('projects')).filter(p => p.data.featured);
+---
+<Base title="Kayra — Workshop Almanac">
+  <section class="home">
+    <h1>Start Here</h1>
+    <p class="lede">Three flagship builds with receipts.</p>
+
+    {flagships.map((project) => {
+      const { data } = project;
+      const { Content } = await project.render();
+      return (
+        <article class="card" id={data.id}>
+          <h2><a href={`/catalog#${data.id}`}>{data.title}</a> <span class="muted">({data.year})</span></h2>
+          <div class="abstract"><Content /></div>
+          <ArtifactRow artifacts={data.artifacts} images={data.images} />
+          <div class="badges">
+            {data.metrics?.loc && <span class="badge">LOC {data.metrics.loc}</span>}
+            {data.metrics?.gpu_hours && <span class="badge">GPU {data.metrics.gpu_hours}h</span>}
+            {data.metrics?.boot_sec && <span class="badge">BOOT {data.metrics.boot_sec}s</span>}
+            <span class={`badge ${data.status}`}>{data.status}</span>
+          </div>
+        </article>
+      );
+    })}
+
+    <h3>Latest Logbook</h3>
+    <ul class="loglist">
+      {logbook.map(e=> (
+        <li id={e.slug}><a href={`/logbook#${e.slug}`}>{e.data.date} — {e.data.title}</a></li>
+      ))}
+    </ul>
+  </section>
+</Base>

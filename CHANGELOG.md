@@ -1,5 +1,11 @@
 # Changelog
 
+## Phase 4 - Core Components (2025-10-24)
+- Created ProofStrip: dynamic project counts, OS builds, last update date
+- Created LeftNav: navigation links with data-portal hooks
+- Created ArtifactRow: displays diagrams, README, postmortem, image count
+- Created Filters: domain and status query-param filters
+
 ## Phase 3 - Layouts & Styles (2025-10-24)
 - Created BaseLayout with header, ProofStrip, left nav, footer, portal stub, lightbox script
 - Created SectionLayout wrapper

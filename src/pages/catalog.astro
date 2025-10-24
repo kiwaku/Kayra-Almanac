@@ -1,0 +1,40 @@
+---
+import Base from '../layouts/SectionLayout.astro';
+import { getCollection } from 'astro:content';
+import Filters from '../components/Filters.astro';
+import ArtifactRow from '../components/ArtifactRow.astro';
+
+const all = await getCollection('projects');
+const url = new URL(Astro.request.url);
+const domain = url.searchParams.get('domain');
+const status = url.searchParams.get('status');
+const year = url.searchParams.get('year');
+
+const filtered = all.filter(p=>{
+  const d = p.data;
+  return (!domain || d.domain.includes(domain)) &&
+         (!status || d.status===status) &&
+         (!year || String(d.year)===year);
+});
+---
+<Base title="Catalog — Projects">
+  <h1>Catalog</h1>
+  <Filters />
+  <div class="grid">
+    {filtered.map(async (project) => {
+      const { data } = project;
+      const { Content } = await project.render();
+      return (
+        <article id={data.id} class="card">
+          <h2>{data.title} <span class="muted">({data.year})</span></h2>
+          <div class="abstract"><Content /></div>
+          <ArtifactRow artifacts={data.artifacts} images={data.images} />
+          <div class="badges">
+            {data.domain.map(tag=> <span class="tag">{tag}</span>)}
+            <span class={`badge ${data.status}`}>{data.status}</span>
+          </div>
+        </article>
+      );
+    })}
+  </div>
+</Base>

@@ -1,0 +1,16 @@
+---
+import Base from '../layouts/SectionLayout.astro';
+import { getCollection } from 'astro:content';
+const projects = await getCollection('projects');
+const images = projects.flatMap(p => (p.data.images || []).map(src => ({src, project:p.data})));
+---
+<Base title="Gallery">
+  <h1>Gallery</h1>
+  <div class="gallery">
+    {images.map(({src, project}) => (
+      <a class="thumb lightbox" href={src} data-project={project.id}>
+        <img src={src} alt={`${project.title}`} loading="lazy" />
+      </a>
+    ))}
+  </div>
+</Base>

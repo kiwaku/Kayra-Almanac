@@ -1,0 +1,22 @@
+---
+import Base from '../layouts/SectionLayout.astro';
+import { getCollection } from 'astro:content';
+const entries = (await getCollection('logbook'))
+  .sort((a,b)=> a.data.date < b.data.date ? 1 : -1);
+const byYear = entries.reduce((acc, e)=>{
+  const y = e.data.date.slice(0,4);
+  (acc[y] ||= []).push(e);
+  return acc;
+}, {} as Record<string, typeof entries>);
+---
+<Base title="Logbook">
+  <h1>Logbook</h1>
+  {Object.entries(byYear).map(([y, list])=> (
+    <>
+      <h2 class="year">{y}</h2>
+      <ul class="loglist">
+        {list.map(e=> <li id={e.slug}><strong>{e.data.date}</strong> — {e.data.title}{e.data.anomaly && ' · ALERT'}</li>)}
+      </ul>
+    </>
+  ))}
+</Base>

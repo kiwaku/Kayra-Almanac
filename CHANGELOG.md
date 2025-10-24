@@ -1,5 +1,19 @@
 # Changelog
 
+## Style Update - Early 2000s Academic (2025-10-24)
+- Changed typography: Arial/Helvetica body (16px), Courier New monospace
+- Blue underlined links (#0066CC), visited links purple (#663399)
+- Removed ALL horizontal lines/borders sitewide (header, footer, nav, logbook, year headers)
+- Added ARJ-style footer with beveled dot separators
+- Added 88×31 trust badge (bottom-left fixed position)
+- Implemented numeric gutter (01, 02, 03) for home and catalog pages
+- Geeklog-style logbook: bracketed metadata tokens, warning glyph for anomalies
+- Uppercase nav labels with letter-spacing
+- Evidence mode now preserves links (dims prose only)
+- Removed scanlines effect
+- Background changed to pure white
+- All interactions and hooks (data-portal, #portal-overlay, Evidence, Raw) preserved
+
 ## Phase 10 - SEO & Deploy (2025-10-24)
 - Added robots.txt with sitemap reference
 - Created vercel.json for Vercel deployment

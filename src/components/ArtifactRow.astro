@@ -1,0 +1,9 @@
+---
+const { artifacts = {}, images = [] } = Astro.props;
+---
+<div class="artifacts">
+  {artifacts.diagram && <a href={artifacts.diagram} class="lightbox">diagram</a>}
+  {artifacts.readme &&  <a href={artifacts.readme}>README</a>}
+  {artifacts.postmortem && <a href={artifacts.postmortem}>postmortem</a>}
+  {images?.length ? <a href="/gallery" class="images">📷 {images.length}</a> : null}
+</div>

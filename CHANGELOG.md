@@ -1,5 +1,10 @@
 # Changelog
 
+## Phase 3 - Layouts & Styles (2025-10-24)
+- Created BaseLayout with header, ProofStrip, left nav, footer, portal stub, lightbox script
+- Created SectionLayout wrapper
+- Implemented theme.css: 2000s sober aesthetic, scanlines, Evidence fade, mobile responsive
+
 ## Phase 2 - Content Schemas (2025-10-24)
 - Implemented content collections: projects, logbook, notebooks, hardware
 - Added `featured` flag to projects for homepage

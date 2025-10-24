@@ -1,0 +1,14 @@
+---
+import { getCollection } from 'astro:content';
+const projects = await getCollection('projects');
+const logbook = await getCollection('logbook');
+const osBuilds = projects.filter(p => p.data.domain.includes('os')).length;
+const last = logbook.sort((a,b)=> a.data.date < b.data.date ? 1 : -1)[0]?.data.date;
+---
+<div class="proof">
+  <span class="ok">[OK]</span>
+  <span>{projects.length} projects</span> ·
+  <span>12 shipped tools</span> ·
+  <span>{osBuilds} OS builds</span> ·
+  <span>last update: {last ?? '—'}</span>
+</div>

@@ -1,5 +1,18 @@
 # Changelog
 
+## Polish - Authentic 2000s Density (2025-10-24)
+- **Typography hierarchy**: Bold italic headers (H1-H3) for that handcrafted feel
+- **Tight spacing**: Line-height 1.35, paragraph margin 0.35em, tighter list items
+- **Boxed-in layout**: 880px max-width, 10px side padding (era-correct constraints)
+- **Monospace metadata**: Dull gray (#444) for badges/tags, no backgrounds
+- **Authentic blue links**: #0000EE (default browser blue), hover #0000CC, visited #551A8B (purple)
+- **Engraved numbers**: Italic numeric gutter with subtle drop-shadow (Win98 depth)
+- **Footer dots**: Added drop-shadow for beveled 3D pearl effect
+- **Trust badge**: Fixed bottom-left at 12px with 0.9 opacity
+- **Logbook spacing**: Tight 4px padding between entries, 1px metadata line-height
+- **Removed all hr/dividers**: Explicit `display:none !important`
+- **Dense content blocks**: Reduced all padding/margins for print-like density
+
 ## Style Update - Early 2000s Academic (2025-10-24)
 - Changed typography: Arial/Helvetica body (16px), Courier New monospace
 - Blue underlined links (#0066CC), visited links purple (#663399)

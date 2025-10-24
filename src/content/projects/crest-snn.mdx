@@ -1,0 +1,23 @@
+---
+title: CREST-SNN
+id: crest-snn
+year: 2024
+domain: [ "ai", "hardware" ]
+status: "paused"
+featured: true
+metrics: { loc: 8500 }
+artifacts:
+  diagram: "/artifacts/crest-snn/architecture.png"
+  postmortem: "/notebooks/crest_postmortem"
+images:
+  - "/artifacts/crest-snn/board.jpg"
+  - "/artifacts/crest-snn/trace.jpg"
+related: [ "himorogi" ]
+---
+
+Spiking neural network accelerator on FPGA. Event-driven compute for edge inference.
+
+- Custom RISC-V core + spike encoder
+- 8.5k lines of Verilog/SystemVerilog
+- Paused pending silicon tape-out budget
+- Postmortem covers thermal and timing closure issues

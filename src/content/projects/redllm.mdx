@@ -1,0 +1,23 @@
+---
+title: RedLLM
+id: redllm
+year: 2024
+domain: [ "ai", "security" ]
+status: "active"
+featured: true
+metrics: { gpu_hours: 240, dataset_size: "60k prompts" }
+artifacts:
+  diagram: "/artifacts/redllm/pipeline.png"
+  readme: "https://github.com/you/redllm#readme"
+images:
+  - "/artifacts/redllm/results.jpg"
+  - "/artifacts/redllm/dashboard.jpg"
+related: [ "himorogi" ]
+---
+
+Adversarial red-team eval harness for LLMs. Automated jailbreak testing, toxicity probes, and hallucination metrics.
+
+- 60k prompt dataset across 12 attack categories
+- 240 GPU-hours of fine-tuning and eval
+- Judge ensemble (GPT-4 + Claude + Llama Guard)
+- CSV/JSON export for compliance reports

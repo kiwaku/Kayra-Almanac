@@ -1,0 +1,39 @@
+---
+title: Initrd Pitfalls & Live-Boot Edge Cases
+date: "2025-09-18"
+tags: [ "os", "linux", "live-boot" ]
+---
+
+## Context
+
+Building a RAM-boot Debian (Himorogi) revealed several non-obvious pitfalls when crafting custom initramfs for `toram` scenarios.
+
+## Key Lessons
+
+### 1. Module Ordering Matters
+
+- `overlayfs` must load *before* pivot_root
+- If you strip modules too aggressively, you'll get a kernel panic on boot
+- Always keep `loop`, `squashfs`, and `overlay` (or `overlayfs`) in the initrd
+
+### 2. PXE Fallback is Fragile
+
+- TFTP timeouts are not retried by default in most distro initrd scripts
+- Add explicit retry logic in `init` or use `ipconfig` with `::::::dhcp` for resilience
+- Test with packet loss (tc qdisc) to validate fallback paths
+
+### 3. Wipe-on-Shutdown Timing
+
+- If you hook `poweroff.target`, ensure the overlay is unmounted *first*
+- Otherwise, partial writes may leak to tmpfs and persist across warm reboots
+- Use `sync` + `umount -l` in the shutdown script
+
+## Benchmark Data
+
+- 10 cold boots (UEFI, 11.2s avg, σ=0.4s)
+- 10 cold boots (BIOS, 14.9s avg, σ=0.7s)
+
+## References
+
+- [Debian Live Manual](https://live-team.pages.debian.net/live-manual/)
+- [dracut.cmdline(7)](https://man7.org/linux/man-pages/man7/dracut.cmdline.7.html)

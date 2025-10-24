@@ -1,0 +1,24 @@
+---
+title: Himorogi
+id: himorogi
+year: 2025
+domain: [ "os", "security" ]
+status: "active"
+featured: true
+metrics: { loc: 12000, boot_sec: 11.2 }
+artifacts:
+  diagram: "/artifacts/himorogi/arch.png"
+  readme:  "https://github.com/you/himorogi#readme"
+  postmortem: "/notebooks/himorogi_postmortem"
+images:
+  - "/artifacts/himorogi/boot-seq.jpg"
+  - "/artifacts/himorogi/wiring.jpg"
+related: [ "redllm", "crest-snn" ]
+---
+
+**RAM-boot** Debian (BIOS/UEFI); `toram` + initrd surgery.
+Goal: ultrafast trusted boot for volatile experiments; wipe-on-shutdown.
+
+- Cold boot: **11.2s** (UEFI), 14.9s (BIOS)
+- ISO + PXE; persistent overlay optional
+- Wipe script nukes ephemeral mounts on poweroff

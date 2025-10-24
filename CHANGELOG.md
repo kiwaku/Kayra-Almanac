@@ -1,5 +1,10 @@
 # Changelog
 
+## Phase 6 - Toggles & Portal Stub (2025-10-24)
+- Added evidence-toggle.js: [E] key dims prose, highlights artifacts
+- Added raw-toggle.js: [R] key toggles raw markdown <details> element
+- Portal stub already wired in BaseLayout (data-portal attributes, #portal-overlay div)
+
 ## Phase 5 - Pages (2025-10-24)
 - Created index.astro: homepage with featured projects and latest logbook
 - Created catalog.astro: filterable project index with query params

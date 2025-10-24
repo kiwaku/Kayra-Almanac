@@ -1,5 +1,17 @@
 # Changelog
 
+## Phase 9 - Performance (2025-10-24)
+- All gallery and hardware images already use loading="lazy"
+- Placeholder images are minimal (empty files)
+- No images exceed 2MB (all are placeholders awaiting real content)
+
+## Phase 8 - QA Pass (2025-10-24)
+- Fixed TypeScript errors in BaseLayout scripts (removed TS-specific syntax)
+- Fixed catalog domain filter type issue
+- Fixed index page async rendering with Promise.all
+- Build now passes with 0 errors, 0 warnings
+- All 9 pages generated successfully
+
 ## Phase 7 - Seed Content (2025-10-24)
 - Added 3 featured projects: Himorogi (OS/security), RedLLM (AI/security), CREST-SNN (AI/hardware)
 - Added 5 logbook entries (2024-2025), one marked as anomaly

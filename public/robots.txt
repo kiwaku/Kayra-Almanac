@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://kayra-almanac.vercel.app/sitemap-index.xml

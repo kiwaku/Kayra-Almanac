@@ -1,5 +1,12 @@
 # Changelog
 
+## Phase 10 - SEO & Deploy (2025-10-24)
+- Added robots.txt with sitemap reference
+- Created vercel.json for Vercel deployment
+- Added comprehensive README.md
+- SEO meta tags already present in BaseLayout (OG tags, description)
+- Sitemap integration configured in astro.config.mjs
+
 ## Phase 9 - Performance (2025-10-24)
 - All gallery and hardware images already use loading="lazy"
 - Placeholder images are minimal (empty files)

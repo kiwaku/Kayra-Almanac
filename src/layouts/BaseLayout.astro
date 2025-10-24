@@ -42,10 +42,28 @@ const { title = 'Kayra — Workshop Almanac' } = Astro.props;
       </section>
     </main>
 
-    <footer class="footer">
-      <div>© {new Date().getFullYear()} Kayra — v0.1 · <a href="/resume.pdf">Resume</a></div>
-      <div class="hint">Evidence [E] · Raw [R] · Effects Off (soon)</div>
+    <footer class="nav-footer">
+      <nav aria-label="Footer links">
+        <a href="/start-here">START HERE</a>
+        <img src="/assets/dot.gif" class="dot" alt="">
+        <a href="/catalog">CATALOG</a>
+        <img src="/assets/dot.gif" class="dot" alt="">
+        <a href="/logbook">LOGBOOK</a>
+        <img src="/assets/dot.gif" class="dot" alt="">
+        <a href="/hardware">HARDWARE</a>
+        <img src="/assets/dot.gif" class="dot" alt="">
+        <a href="/notebooks">NOTEBOOKS</a>
+        <img src="/assets/dot.gif" class="dot" alt="">
+        <a href="/gallery">GALLERY</a>
+      </nav>
+      <div class="copy"><i>© {new Date().getFullYear()} Kayra — Workshop Almanac · Evidence [E] · Raw [R]</i></div>
     </footer>
+
+    <div class="trust">
+      <a href="/trust.html" title="Content rating / About this site">
+        <img src="/assets/trust-88x31.gif" width="88" height="31" alt="Content Rated">
+      </a>
+    </div>
 
     <script is:inline src="/evidence-toggle.js" defer></script>
     <script is:inline src="/raw-toggle.js" defer></script>

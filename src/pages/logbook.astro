@@ -15,7 +15,16 @@ const byYear = entries.reduce((acc, e)=>{
     <>
       <h2 class="year">{y}</h2>
       <ul class="loglist">
-        {list.map(e=> <li id={e.slug}><strong>{e.data.date}</strong> — {e.data.title}{e.data.anomaly && ' · ALERT'}</li>)}
+        {list.map(e=> (
+          <li id={e.slug}>
+            {e.data.anomaly && <span style="color:#b33a3a;">⚠︎ </span>}
+            <a href={`/logbook#${e.slug}`}>{e.data.date} — {e.data.title}</a>
+            <span class="meta">
+              [{e.data.tags.join(', ')}]
+              {e.data.project && ` · project: ${e.data.project}`}
+            </span>
+          </li>
+        ))}
       </ul>
     </>
   ))}

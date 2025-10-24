@@ -20,21 +20,21 @@ const filtered = all.filter(p=>{
 <Base title="Catalog — Projects">
   <h1>Catalog</h1>
   <Filters />
-  <div class="grid">
+  <ol class="numlist">
     {filtered.map(async (project) => {
       const { data } = project;
       const { Content } = await project.render();
       return (
-        <article id={data.id} class="card">
-          <h2>{data.title} <span class="muted">({data.year})</span></h2>
+        <li class="block" id={data.id}>
+          <h2><a href={`/catalog#${data.id}`}>{data.title}</a> <span class="muted">({data.year})</span></h2>
           <div class="abstract"><Content /></div>
           <ArtifactRow artifacts={data.artifacts} images={data.images} />
           <div class="badges">
             {data.domain.map(tag=> <span class="tag">{tag}</span>)}
             <span class={`badge ${data.status}`}>{data.status}</span>
           </div>
-        </article>
+        </li>
       );
     })}
-  </div>
+  </ol>
 </Base>

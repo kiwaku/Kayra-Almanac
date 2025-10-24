@@ -12,30 +12,35 @@ const flagships = (await getCollection('projects')).filter(p => p.data.featured)
 <Base title="Kayra — Workshop Almanac">
   <section class="home">
     <h1>Start Here</h1>
-    <p class="lede">Three flagship builds with receipts.</p>
+    <p>Three flagship builds with receipts.</p>
 
-    {await Promise.all(flagships.map(async (project) => {
-      const { data } = project;
-      const { Content } = await project.render();
-      return (
-        <article class="card" id={data.id}>
-          <h2><a href={`/catalog#${data.id}`}>{data.title}</a> <span class="muted">({data.year})</span></h2>
-          <div class="abstract"><Content /></div>
-          <ArtifactRow artifacts={data.artifacts} images={data.images} />
-          <div class="badges">
-            {data.metrics?.loc && <span class="badge">LOC {data.metrics.loc}</span>}
-            {data.metrics?.gpu_hours && <span class="badge">GPU {data.metrics.gpu_hours}h</span>}
-            {data.metrics?.boot_sec && <span class="badge">BOOT {data.metrics.boot_sec}s</span>}
-            <span class={`badge ${data.status}`}>{data.status}</span>
-          </div>
-        </article>
-      );
-    }))}
+    <ol class="numlist">
+      {await Promise.all(flagships.map(async (project) => {
+        const { data } = project;
+        const { Content } = await project.render();
+        return (
+          <li class="block" id={data.id}>
+            <h2><a href={`/catalog#${data.id}`}>{data.title}</a> <span class="muted">({data.year})</span></h2>
+            <div class="abstract"><Content /></div>
+            <ArtifactRow artifacts={data.artifacts} images={data.images} />
+            <div class="badges">
+              {data.metrics?.loc && <span class="badge">LOC {data.metrics.loc}</span>}
+              {data.metrics?.gpu_hours && <span class="badge">GPU {data.metrics.gpu_hours}h</span>}
+              {data.metrics?.boot_sec && <span class="badge">BOOT {data.metrics.boot_sec}s</span>}
+              <span class={`badge ${data.status}`}>{data.status}</span>
+            </div>
+          </li>
+        );
+      }))}
+    </ol>
 
     <h3>Latest Logbook</h3>
     <ul class="loglist">
       {logbook.map(e=> (
-        <li id={e.slug}><a href={`/logbook#${e.slug}`}>{e.data.date} — {e.data.title}</a></li>
+        <li id={e.slug}>
+          <a href={`/logbook#${e.slug}`}>{e.data.date} — {e.data.title}</a>
+          {e.data.anomaly && <span style="color:#b33a3a;"> ⚠︎</span>}
+        </li>
       ))}
     </ul>
   </section>

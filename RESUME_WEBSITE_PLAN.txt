@@ -1,0 +1,773 @@
+Kayra — Workshop Almanac (v1)
+
+A sober, 2000s-leaning, artifact-first portfolio you can actually maintain.
+
+⸻
+
+0) What we’re building (one paragraph)
+
+A fast, static website that feels like a lab notebook / archive: text-first, artifact-rich, sober 2000s chrome (Verdana, 1px borders, off-white), with a left nav and simple top header. It exposes receipts (diagrams, logs, wiring photos, benchmarks) on every project page, has a chronological Logbook, a Catalog with filters, a Hardware section for the Homunculus build, Notebooks for technical notes, and a Gallery view. It includes small, web-native interactions: Evidence Mode (dim prose, spotlight artifacts) and Raw Toggle (view raw Markdown). Later we’ll add the portal mosh effect and shrine anomalies; for v1 they’re just stubs.
+
+⸻
+
+1) Tech stack (opinionated, no bikeshedding)
+	•	Astro (SSG): content collections, MD/MDX, islands if needed
+	•	Node 20+, pnpm
+	•	No React/Vue for v1 (keep static)
+	•	No Tailwind (hand-rolled CSS suits the era)
+	•	Tiny vanilla JS only (filters via query params, Evidence/Raw toggles, lightbox)
+
+Why Astro: file-centric, schema’d content collections, zero-JS by default, trivial deploys (Vercel/Netlify/Pages).
+
+⸻
+
+2) Project setup
+
+# prerequisites
+node -v    # v20+
+pnpm -v    # npm i -g pnpm
+
+# create project
+pnpm create astro@latest kayra-almanac
+# choose: "Empty" · "TypeScript: strict" · "Use npm?" → No (pnpm)
+
+cd kayra-almanac
+pnpm add @astrojs/mdx zod sharp @astrojs/sitemap
+pnpm astro add mdx
+pnpm astro add sitemap   # optional but recommended for SEO
+
+
+⸻
+
+3) Repository structure
+
+kayra-almanac/
+  public/
+    artifacts/                 # images, diagrams, wiring photos, logs
+      himorogi/...
+      redllm/...
+    favicon.ico                # your monochrome sigil
+    og-default.jpg             # static OG preview for now
+    evidence-toggle.js
+    raw-toggle.js
+  src/
+    components/
+      ProofStrip.astro
+      LeftNav.astro
+      ArtifactRow.astro
+      Filters.astro
+      Lightbox.js
+    layouts/
+      BaseLayout.astro
+      SectionLayout.astro
+    pages/
+      index.astro              # landing: proof + flagships + latest log
+      start-here.astro         # 90-sec tour (text/images only)
+      catalog.astro            # filterable project index
+      logbook.astro            # chronological entries
+      hardware.astro           # Homunculus section
+      notebooks.astro          # technical notes index
+      gallery.astro            # image grid
+      shrine.astro             # subtle link target (minimal content v1)
+      404.astro
+    styles/
+      theme.css                # 2000s lab style (no gloss)
+  src/content/
+    config.ts                  # content collections & schemas
+    projects/                  # MDX for projects
+    logbook/                   # blog/log entries (chrono)
+    notebooks/                 # technical notes
+    hardware/                  # Homunculus pages (BOM, wiring)
+
+
+⸻
+
+4) Content model (schemas + examples)
+
+4.1 src/content/config.ts
+
+import { defineCollection, z } from 'astro:content';
+
+const project = defineCollection({
+  type: 'content',
+  schema: z.object({
+    title: z.string(),
+    id: z.string(),                        // slug-like, unique
+    year: z.number(),
+    domain: z.array(z.enum(['ai','security','os','hardware','ux','viz'])),
+    status: z.enum(['active','archived','paused']),
+    featured: z.boolean().default(false),  // NEW: for homepage
+    metrics: z.object({
+      loc: z.number().optional(),
+      gpu_hours: z.number().optional(),
+      boot_sec: z.number().optional(),
+      dataset_size: z.string().optional(), // e.g. "60k prompts"
+    }).optional(),
+    artifacts: z.object({
+      diagram: z.string().optional(),      // /artifacts/.../arch.png
+      readme: z.string().optional(),       // external or internal
+      postmortem: z.string().optional()
+    }).optional(),
+    images: z.array(z.string()).optional(), // /public/artifacts/...
+    related: z.array(z.string()).optional()
+  })
+});
+
+const logEntry = defineCollection({
+  type: 'content',
+  schema: z.object({
+    title: z.string(),
+    date: z.string(),                       // ISO yyyy-mm-dd
+    tags: z.array(z.string()).default([]),
+    project: z.string().optional(),
+    images: z.array(z.string()).optional(),
+    anomaly: z.boolean().default(false)     // NEW: shrine hook
+  })
+});
+
+const note = defineCollection({
+  type: 'content',
+  schema: z.object({
+    title: z.string(),
+    date: z.string().optional(),
+    tags: z.array(z.string()).default([])
+  })
+});
+
+const hardware = defineCollection({
+  type: 'content',
+  schema: z.object({
+    title: z.string(),
+    part: z.enum(['overview','bom','wiring','thermals','mounts']),
+    date: z.string().optional(),
+    images: z.array(z.string()).optional()
+  })
+});
+
+export const collections = {
+  projects: project,
+  logbook: logEntry,
+  notebooks: note,
+  hardware
+};
+
+4.2 Example: project (src/content/projects/himorogi.mdx)
+
+---
+title: Himorogi
+id: himorogi
+year: 2025
+domain: [ "os", "security" ]
+status: "active"
+featured: true
+metrics: { loc: 12000, boot_sec: 11.2 }
+artifacts:
+  diagram: "/artifacts/himorogi/arch.png"
+  readme:  "https://github.com/you/himorogi#readme"
+  postmortem: "/notebooks/himorogi_postmortem"
+images:
+  - "/artifacts/himorogi/boot-seq.jpg"
+  - "/artifacts/himorogi/wiring.jpg"
+related: [ "redllm", "crest-snn" ]
+---
+
+**RAM-boot** Debian (BIOS/UEFI); `toram` + initrd surgery.  
+Goal: ultrafast trusted boot for volatile experiments; wipe-on-shutdown.
+
+- Cold boot: **11.2s** (UEFI), 14.9s (BIOS)  
+- ISO + PXE; persistent overlay optional  
+- Wipe script nukes ephemeral mounts on poweroff
+
+4.3 Example: log entry (src/content/logbook/2025-09-16-initrd.mdx)
+
+---
+title: Initrd surgery & toram tweaks
+date: 2025-09-16
+tags: [ "os", "live-boot", "himorogi" ]
+project: himorogi
+images:
+  - "/artifacts/himorogi/initrd-diff.png"
+anomaly: false
+---
+
+Trimmed initrd modules; `overlayfs` path fixed; PXE path retried with fallback.  
+Measured boot variance across 10 cold boots.
+
+4.4 Example: hardware BOM (src/content/hardware/bom.mdx)
+
+---
+title: Homunculus BOM
+part: bom
+images:
+  - "/artifacts/homunculus/rig.jpg"
+---
+
+- Motherboard: dual-socket LGA2011-3 (C612, narrow-ILM)  
+- CPU: 2× Xeon E5-2650 v3 (10C/20T)  
+- RAM: 8× 16GB DDR4 ECC RDIMM (128GB)  
+- GPU: Tesla M40 (24GB)  
+- Networking: Mellanox ConnectX (IB)  
+- Rails: DIN + 2020 aluminum, M3 mounts, lacing bars
+
+
+⸻
+
+5) Layout & pages
+
+5.1 BaseLayout.astro
+
+---
+import '../styles/theme.css';
+import LeftNav from '../components/LeftNav.astro';
+import ProofStrip from '../components/ProofStrip.astro';
+const { title = 'Kayra — Workshop Almanac' } = Astro.props;
+---
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>{title}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Workshop Almanac: security, OS builds, AI eval, hardware logs.">
+    <link rel="icon" href="/favicon.ico" />
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Kayra — Workshop Almanac">
+    <meta property="og:description" content="Security, OS builds, AI eval, hardware logs.">
+    <meta property="og:image" content="/og-default.jpg">
+  </head>
+  <body>
+    <header class="header">
+      <div class="brand">Kayra — <span class="muted">Workshop Almanac</span></div>
+      <nav class="topnav">
+        <a href="/start-here" data-portal>Start Here</a>
+        <a href="/catalog" data-portal>Catalog</a>
+        <a href="/logbook" data-portal>Logbook</a>
+        <a href="/hardware" data-portal>Hardware</a>
+        <a href="/notebooks" data-portal>Notebooks</a>
+        <a href="/gallery" data-portal>Gallery</a>
+        <a href="/shrine" class="shrine" aria-label="Shrine (anomaly link)">⛩</a>
+      </nav>
+    </header>
+
+    <ProofStrip />
+
+    <main class="shell">
+      <aside class="left">
+        <LeftNav />
+      </aside>
+      <section class="content">
+        <slot />
+        <details class="raw"><summary>Raw Markdown</summary><!-- pre-embed at build if desired --></details>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div>© {new Date().getFullYear()} Kayra — v0.1 · <a href="/resume.pdf">Resume</a></div>
+      <div class="hint">Evidence [E] · Raw [R] · Effects Off (soon)</div>
+    </footer>
+		
+    <script src="/evidence-toggle.js" defer></script>
+    <script src="/raw-toggle.js" defer></script>
+    <div id="portal-overlay" hidden aria-hidden="true"></div>
+<script type="module">
+  // Intercept top/left nav clicks tagged data-portal (no animation yet)
+  const overlay = document.getElementById('portal-overlay');
+  function handle(e){
+    const a = e.target.closest('a[data-portal]');
+    if(!a) return;
+    // v1: show a no-op overlay briefly to verify wiring (kept hidden instantly)
+    // v2: this is where we mount the shader + screenshot, then navigate.
+  }
+  document.addEventListener('click', handle);
+</script>
+  </body>
+</html>
+
+(Insert the following):
+<script>
+document.addEventListener('click', e=>{
+  const a = e.target.closest('a.lightbox, a.thumb');
+  if(!a) return;
+  e.preventDefault();
+  let lb = document.getElementById('lightbox');
+  if(!lb){
+    lb = document.createElement('div');
+    lb.id = 'lightbox';
+    lb.innerHTML = '<img alt=""><button aria-label="Close">×</button>';
+    document.body.appendChild(lb);
+    lb.addEventListener('click', ()=> lb.hidden = true);
+  }
+  lb.querySelector('img').src = a.href;
+  lb.hidden = false;
+});
+</script>
+<style>
+#lightbox{position:fixed;inset:0;background:rgba(0,0,0,.86);
+  display:grid;place-items:center;z-index:9999}
+#lightbox[hidden]{display:none}
+#lightbox img{max-width:92vw;max-height:92vh;display:block}
+#lightbox button{position:absolute;top:12px;right:16px;
+  font-size:22px;color:#fff;background:transparent;border:0;cursor:pointer}
+</style>
+
+5.2 ProofStrip.astro
+
+---
+import { getCollection } from 'astro:content';
+const projects = await getCollection('projects');
+const logbook = await getCollection('logbook');
+const osBuilds = projects.filter(p => p.data.domain.includes('os')).length;
+const last = logbook.sort((a,b)=> a.data.date < b.data.date ? 1 : -1)[0]?.data.date;
+---
+<div class="proof">
+  <span class="ok">[OK]</span>
+  <span>{projects.length} projects</span> ·
+  <span>12 shipped tools</span> ·
+  <span>{osBuilds} OS builds</span> ·
+  <span>last update: {last ?? '—'}</span>
+</div>
+
+5.3 LeftNav.astro
+
+<nav class="leftnav">
+  <a href="/start-here" data-portal>Start Here</a>
+  <a href="/catalog" data-portal>Catalog</a>
+  <a href="/logbook" data-portal>Logbook</a>
+  <a href="/hardware" data-portal>Hardware</a>
+  <a href="/notebooks" data-portal>Notebooks</a>
+  <a href="/gallery" data-portal>Gallery</a>
+  <a href="/shrine" title="…" aria-label="Shrine (anomaly link)">⛩ Shrine</a>
+</nav>
+
+5.4 Landing page index.astro
+
+---
+import Base from '../layouts/BaseLayout.astro';
+import { getCollection } from 'astro:content';
+import ArtifactRow from '../components/ArtifactRow.astro';
+
+const logbook = (await getCollection('logbook'))
+  .sort((a,b)=> a.data.date < b.data.date ? 1 : -1)
+  .slice(0,5);
+
+const flagships = (await getCollection('projects')).filter(p => p.data.featured);
+---
+<Base title="Kayra — Workshop Almanac">
+  <section class="home">
+    <h1>Start Here</h1>
+    <p class="lede">Three flagship builds with receipts.</p>
+
+    {flagships.map(({data, body}) => (
+      <article class="card" id={data.id}>
+        <h2><a href={`/catalog#${data.id}`}>{data.title}</a> <span class="muted">({data.year})</span></h2>
+        <p class="abstract">{body}</p>
+        <ArtifactRow artifacts={data.artifacts} images={data.images} />
+        <div class="badges">
+          {data.metrics?.loc && <span class="badge">LOC {data.metrics.loc}</span>}
+          {data.metrics?.gpu_hours && <span class="badge">GPU {data.metrics.gpu_hours}h</span>}
+          {data.metrics?.boot_sec && <span class="badge">BOOT {data.metrics.boot_sec}s</span>}
+          <span class={`badge ${data.status}`}>{data.status}</span>
+        </div>
+      </article>
+    ))}
+
+    <h3>Latest Logbook</h3>
+    <ul class="loglist">
+      {logbook.map(e=> (
+        <li id={e.slug}><a href={`/logbook#${e.slug}`}>{e.data.date} — {e.data.title}</a></li>
+      ))}
+    </ul>
+  </section>
+</Base>
+
+5.5 Catalog catalog.astro (query-param filters)
+
+---
+import Base from '../layouts/SectionLayout.astro';
+import { getCollection } from 'astro:content';
+import Filters from '../components/Filters.astro';
+import ArtifactRow from '../components/ArtifactRow.astro';
+
+const all = await getCollection('projects');
+const url = new URL(Astro.request.url);
+const domain = url.searchParams.get('domain');
+const status = url.searchParams.get('status');
+const year = url.searchParams.get('year');
+
+const filtered = all.filter(p=>{
+  const d = p.data;
+  return (!domain || d.domain.includes(domain)) &&
+         (!status || d.status===status) &&
+         (!year || String(d.year)===year);
+});
+---
+<Base title="Catalog — Projects">
+  <h1>Catalog</h1>
+  <Filters />
+  <div class="grid">
+    {filtered.map(({data, body}) => (
+      <article id={data.id} class="card">
+        <h2>{data.title} <span class="muted">({data.year})</span></h2>
+        <p class="abstract">{body}</p>
+        <ArtifactRow artifacts={data.artifacts} images={data.images} />
+        <div class="badges">
+          {data.domain.map(tag=> <span class="tag">{tag}</span>)}
+          <span class={`badge ${data.status}`}>{data.status}</span>
+        </div>
+      </article>
+    ))}
+  </div>
+</Base>
+
+5.6 Logbook logbook.astro (group by year)
+
+---
+import Base from '../layouts/SectionLayout.astro';
+import { getCollection } from 'astro:content';
+const entries = (await getCollection('logbook'))
+  .sort((a,b)=> a.data.date < b.data.date ? 1 : -1);
+const byYear = entries.reduce((acc, e)=>{
+  const y = e.data.date.slice(0,4);
+  (acc[y] ||= []).push(e);
+  return acc;
+}, {});
+---
+<Base title="Logbook">
+  <h1>Logbook</h1>
+  {Object.entries(byYear).map(([y, list])=> (
+    <>
+      <h2 class="year">{y}</h2>
+      <ul class="loglist">
+        {list.map(e=> <li id={e.slug}><strong>{e.data.date}</strong> — {e.data.title}{e.data.anomaly && ' · ALERT'}</li>)}
+      </ul>
+    </>
+  ))}
+</Base>
+
+5.7 Gallery gallery.astro
+
+---
+import Base from '../layouts/SectionLayout.astro';
+import { getCollection } from 'astro:content';
+const projects = await getCollection('projects');
+const images = projects.flatMap(p => (p.data.images || []).map(src => ({src, project:p.data})));
+---
+<Base title="Gallery">
+  <h1>Gallery</h1>
+  <div class="gallery">
+    {images.map(({src, project}) => (
+      <a class="thumb lightbox" href={src} data-project={project.id}>
+        <img src={src} alt={`${project.title}`} loading="lazy" />
+      </a>
+    ))}
+  </div>
+</Base>
+
+5.8 Hardware hardware.astro
+
+(Group pages by part—overview/bom/wiring/thermals/mounts; render lists with images.)
+
+⸻
+
+6) Components
+
+6.1 ArtifactRow.astro
+
+---
+const { artifacts = {}, images = [] } = Astro.props;
+---
+<div class="artifacts">
+  {artifacts.diagram && <a href={artifacts.diagram} class="lightbox">diagram</a>}
+  {artifacts.readme &&  <a href={artifacts.readme}>README</a>}
+  {artifacts.postmortem && <a href={artifacts.postmortem}>postmortem</a>}
+  {images?.length ? <a href="/gallery" class="images">📷 {images.length}</a> : null}
+</div>
+
+6.2 Filters.astro (no heavy JS)
+
+<div class="filters">
+  <span>Domain:</span>
+  <a href="?">all</a>
+  <a href="?domain=ai">ai</a>
+  <a href="?domain=security">security</a>
+  <a href="?domain=os">os</a>
+  <span>Status:</span>
+  <a href="?status=active">active</a>
+  <a href="?status=archived">archived</a>
+  <a href="?status=paused">paused</a>
+</div>
+
+6.3 Lightbox.js (tiny, dependency-free)
+
+<!-- include once in BaseLayout (defer not required, tiny) -->
+<script>
+document.addEventListener('click', e=>{
+  const a = e.target.closest('a.lightbox, a.thumb');
+  if(!a) return;
+  e.preventDefault();
+  let lb = document.getElementById('lightbox');
+  if(!lb){
+    lb = document.createElement('div');
+    lb.id = 'lightbox';
+    lb.innerHTML = '<img alt=""><button aria-label="Close">×</button>';
+    document.body.appendChild(lb);
+    lb.addEventListener('click', ()=> lb.hidden = true);
+  }
+  lb.querySelector('img').src = a.href;
+  lb.hidden = false;
+});
+</script>
+<style>
+#lightbox{position:fixed;inset:0;background:rgba(0,0,0,.86);
+  display:grid;place-items:center;z-index:9999}
+#lightbox[hidden]{display:none}
+#lightbox img{max-width:92vw;max-height:92vh;display:block}
+#lightbox button{position:absolute;top:12px;right:16px;
+  font-size:22px;color:#fff;background:transparent;border:0;cursor:pointer}
+</style>
+
+
+⸻
+
+7) Styles — src/styles/theme.css (2000s lab aesthetic)
+
+:root{
+  --bg:#f6f3ee; --fg:#222; --muted:#555;
+  --line:#cfc8bb; --ok:#2f8f2f; --warn:#b08900; --drop:#b33a3a;
+  --mono: Consolas, "SFMono-Regular", Menlo, monospace;
+  --sans: Verdana, Tahoma, system-ui, sans-serif;
+}
+*{ box-sizing:border-box; }
+html,body{ margin:0; padding:0; background:var(--bg); color:var(--fg); font-family:var(--sans); }
+a{ color:inherit; text-decoration:underline; }
+:focus{ outline:1px dotted #000; outline-offset:2px; }
+
+.header{ display:flex; justify-content:space-between; align-items:center;
+  padding:10px 16px; border-bottom:1px solid var(--line); }
+.brand .muted{ color:var(--muted); }
+.topnav a{ margin-right:12px; }
+
+.proof{ padding:8px 16px; border-bottom:1px solid var(--line);
+  font-family:var(--mono); font-size:13px; }
+.proof .ok{ color:var(--ok); margin-right:8px; }
+
+.shell{ display:grid; grid-template-columns: 220px 1fr;
+  min-height:calc(100vh - 100px); }
+.left{ border-right:1px solid var(--line); padding:12px; }
+.leftnav a{ display:block; padding:6px 4px; border-bottom:1px dotted var(--line); }
+
+.content{ padding:20px; }
+.footer{ padding:12px 16px; border-top:1px solid var(--line);
+  font-size:12px; color:var(--muted); display:flex; gap:12px; justify-content:space-between; }
+
+.home .card, .grid .card{
+  border:1px solid var(--line); padding:12px; margin-bottom:12px;
+}
+.abstract{ color:var(--fg); line-height:1.45; }
+.badges .badge{ display:inline-block; font-family:var(--mono); font-size:12px;
+  border:1px solid var(--line); padding:2px 6px; margin-right:6px; border-radius:3px; }
+.badges .active{ border-color:var(--ok); }
+.badges .archived{ border-color:var(--drop); }
+.badges .paused{ border-color:var(--warn); }
+.tag{ font-family:var(--mono); font-size:12px; margin-right:6px; color:var(--muted); }
+.artifacts a{ margin-right:10px; }
+
+.loglist{ list-style:none; padding:0; margin:0; }
+.loglist li{ padding:6px 0; border-bottom:1px dotted var(--line); }
+
+.gallery{ display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:8px; }
+.thumb{ display:block; border:1px solid var(--line); }
+.thumb img{ display:block; width:100%; height:auto; }
+
+.year{ margin-top:24px; border-bottom:1px solid var(--line); padding-bottom:4px; color:var(--muted); }
+
+/* Evidence mode (E) dims prose; keep artifacts bright) */
+body.evidence .abstract, body.evidence p, body.evidence li { opacity:0.45; transition: opacity .3s ease; }
+
+/* Subtle scanlines — 3–5% only */
+body::before{
+  content:""; position:fixed; inset:0; pointer-events:none;
+  background:linear-gradient(rgba(0,0,0,.035) 1px, transparent 1px) 0 0/100% 3px;
+}
+
+/* Mobile */
+@media (max-width:768px){
+  .shell{ grid-template-columns:1fr; }
+  .left{ border-right:0; border-bottom:1px solid var(--line); }
+  .topnav{ display:flex; flex-wrap:wrap; gap:8px }
+  .card{ padding:10px }
+  .gallery{ grid-template-columns: repeat(auto-fill, minmax(130px,1fr)); }
+}
+
+(add this somewhere as well):
+#portal-overlay{
+  position:fixed; inset:0; z-index:10000; pointer-events:none;
+  /* v1: hidden; v2 will render a WebGL/canvas here */
+}
+
+⸻
+
+8) Evidence & Raw toggles (tiny JS)
+
+public/evidence-toggle.js
+
+document.addEventListener('keydown', (e)=>{
+  if (e.key.toLowerCase() === 'e') document.body.classList.toggle('evidence');
+});
+
+public/raw-toggle.js
+
+// v1: we use <details> embedded in BaseLayout. No fetch needed.
+// (In v2 you can inject raw MD at build or fetch the md file to show here.)
+document.addEventListener('keydown', (e)=>{
+  if (e.key.toLowerCase() !== 'r') return;
+  const d = document.querySelector('details.raw');
+  if (d) d.open = !d.open;
+});
+
+
+⸻
+
+9) Accessibility & basics
+	•	High contrast, legible sizes, visible focus outlines
+	•	Keyboard navigation works for all links/lightbox
+	•	aria-label="Shrine (anomaly link)" on ⛩
+	•	v1: no animations besides Evidence fade; v2 will honor prefers-reduced-motion for portal effects
+
+⸻
+
+10) Performance & images
+	•	Put images under /public/artifacts/...
+	•	Use loading="lazy" on all <img>
+	•	Prefer JPG/WebP for photos; keep PNG for diagrams
+	•	Sharp is installed; Astro can process images with assets if desired later
+	•	Keep JS bundle minimal (we’re already near zero)
+
+Optionally: migrate some images to Astro’s assets later:
+import { Image } from 'astro:assets' and <Image src={...} alt="..." /> for automatic srcsets.
+
+⸻
+
+11) SEO & social
+	•	Meta description in <head>
+	•	OG tags in BaseLayout (static image for now)
+	•	Favicon = your monochrome sigil (favicon.ico)
+	•	@astrojs/sitemap will emit sitemap.xml automatically
+
+⸻
+
+12) Deployment
+
+Vercel (recommended)
+	•	Connect repo, framework: Astro, build: pnpm build, output: dist/
+	•	Set up production branch, auto-deploy on push
+
+Netlify / Cloudflare Pages / GitHub Pages also fine (same command/output)
+
+⸻
+
+13) Content seeding (so v1 feels alive)
+
+Ship v1 with:
+	•	3 flagship projects (e.g., RedLLM, Himorogi, SNN/CREST) — each with images + artifacts
+	•	5–10 logbook entries (real dates, photos, short notes; include one anomaly: true)
+	•	Hardware: BOM + Wiring (3–6 photos)
+	•	1 notebook (e.g., Initrd pitfalls or Judge ensemble eval notes)
+	•	Gallery auto-populates from images arrays
+
+⸻
+
+14) Plan-now, add-later
+	•	Portal effect (single “signature” animation on section switches)
+	•	Leave data-portal on nav links; v2 will attach a screenshot overlay + shader
+	•	Anomalies → shrine
+	•	v1: one anomaly: true log entry; shrine page exists but minimal
+	•	Search (optional)
+	•	Later: Lunr/elasticlunr with a static JSON index over titles/tags
+
+⸻
+
+15) QA checklist (pass/fail)
+	•	Loads fast; no console errors
+	•	Top/left nav links work; Back/Forward retains filters via query params
+	•	Images lazy-load; lightbox opens/esc closes
+	•	Evidence Mode toggles with E; Raw toggles with R
+	•	Proof strip shows sane counts + recent date
+	•	Mobile: left nav stacks; readable; tap targets easy
+	•	No gradients, parallax, or heavy JS accidentally slipped in
+
+⸻
+
+16) Guardrails for implementers
+	•	Do not add modern gloss (parallax/gradients/soft shadows). Keep it honest 2000s lab.
+	•	Do prioritize artifacts: diagram · README · postmortem directly under the abstract on each project.
+	•	Do keep CSS small, 1px borders, no surprises.
+	•	Keep Zod strict (don’t over-optional everything).
+	•	No new animations in v1 beyond the 0.3s Evidence fade.
+
+⸻
+
+17) Optional Git-CMS (no servers)
+
+If you want browser editing:
+	•	Decap CMS (Netlify CMS): add /admin, configure collections for projects/logbook/hardware/notebooks; publishes to Git via PR/commit; your host rebuilds.
+	•	Or TinaCMS (Git mode) / CloudCannon (paid).
+
+This keeps the site static and fast, with a nice authoring flow.
+
+⸻
+
+18) Minimal extras (nice to have)
+	•	404.astro with the same chrome
+	•	Robots.txt (allow all; point to sitemap)
+	•	Privacy-friendly analytics (e.g., Plausible) — optional
+	•	Favicon + touch icons (just your sigil; keep monochrome)
+
+⸻
+
+19) Future v2 (sketched, not implemented)
+	•	Hero portal effect (pick one):
+	•	JPEG/DCT crush + echo (safest)
+	•	or Rutt-Etra two-phase (DOM pulse → wireframe overlay; bolder)
+	•	Phosphor cursor (subtle afterglow)
+	•	Exploded BOM viewer for Homunculus (one tasteful Three.js panel)
+	•	Dynamic OG images via satori/og-canvas (nice, not urgent)
+
+⸻
+
+20) Acceptance criteria (what “done” looks like)
+	•	Homepage shows proof strip, three flagships (with artifacts/metrics), and latest log list
+	•	Catalog filters by domain/status/year via query params (and persists on back)
+	•	Each flagship has images + at least 2 artifacts (diagram + README/postmortem)
+	•	Hardware section lists BOM with photos
+	•	Evidence Mode (E) and Raw (R) work
+	•	Gallery grid loads quickly; lightbox works
+	•	Mobile layout stacks cleanly; no overflow or tiny tap targets
+	•	No third-party CSS/JS frameworks; total shipped JS is tiny
+	•	Deployed at your domain via Vercel/Netlify; auto-deploy on push
+
+⸻
+
+Final note
+
+This v1 is intentionally clear, expandable, and receipts-forward. It’s the right base for your LinkedIn link and for peers. When you’re comfortable, layer in exactly one signature portal effect and (optionally) a single Three.js instrument on a project page. That’s enough to make it unmistakably yours without sacrificing the honest, 2000s lab soul.
+
+Notes for the implementing agent (non-negotiables)
+	•	Aesthetic: 2000s lab. Flat, readable, 1px borders. No modern gloss, parallax, or pools of shadow.
+	•	Evidence-first: Every project card must render diagram · README · postmortem links and metrics badges if present.
+	•	Performance: Keep JS tiny; all images loading="lazy". Use JPG/WebP for photos, PNG for diagrams.
+	•	Accessibility: Visible focus outlines, aria label on ⛩, lightbox closes on click or Esc.
+	•	Future-proofing: Do not change the data-portal attributes or the #portal-overlay ID—those are v2 hooks.
+	•	Strict content schemas: Keep Zod strict as written; avoid optional-ifying everything or the indexes will rot over time.
+	
+	
+	Final Go/No-Go Checklist (before you hand this to CI)
+	•	Repo matches structure in §3.
+	•	config.ts includes featured & anomaly.
+	•	index.astro uses featured (no hardcoded IDs).
+	•	catalog.astro filters by query params and back/forward persists.
+	•	logbook.astro shows · ALERT when anomaly: true.
+	•	BaseLayout.astro has shrine ARIA, <details class="raw">, scanlines, and Portal overlay stub.
+	•	theme.css has mobile media query, Evidence transition, scanlines.
+	•	Lightbox script/styles present once; works with both .thumb and .lightbox anchors.
+	•	One seeded anomaly log entry exists.
+	•	Deployed on Vercel/Netlify with auto-deploy on push.

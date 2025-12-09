@@ -1,9 +1,25 @@
+---
+const currentPath = Astro.url.pathname;
+---
 <nav class="leftnav">
-  <a href="/start-here" data-portal>Start Here</a>
-  <a href="/catalog" data-portal>Catalog</a>
-  <a href="/logbook" data-portal>Logbook</a>
-  <a href="/hardware" data-portal>Hardware</a>
-  <a href="/notebooks" data-portal>Notebooks</a>
-  <a href="/gallery" data-portal>Gallery</a>
-  <a href="/shrine" title="…" aria-label="Shrine (anomaly link)">⛩ Shrine</a>
+  <a href="/" aria-current={currentPath === '/' ? 'page' : undefined}>Index</a>
+  <a href="/about" data-portal aria-current={currentPath === '/about' ? 'page' : undefined}>About</a>
+  <a href="/catalog" data-portal aria-current={currentPath === '/catalog' ? 'page' : undefined}>Catalog</a>
+  <a href="/logbook" data-portal aria-current={currentPath === '/logbook' ? 'page' : undefined}>Logbook</a>
+  <a href="/hardware" data-portal aria-current={currentPath === '/hardware' ? 'page' : undefined}>Hardware</a>
+  <a href="/notebooks" data-portal aria-current={currentPath === '/notebooks' ? 'page' : undefined}>Notebooks</a>
+  <a href="/gallery" data-portal aria-current={currentPath === '/gallery' ? 'page' : undefined}>Gallery</a>
+  <a href="/shrine" title="…" aria-label="Shrine (anomaly link)" aria-current={currentPath === '/shrine' ? 'page' : undefined}>⛩ Shrine</a>
+
+  <div class="leftnav-shortcuts">
+    <small><i>Shortcuts:</i></small>
+    <small><code>[E]</code> Evidence · <code>[R]</code> Raw</small>
+  </div>
+
+  <div class="leftnav-badge">
+    <small><i>Content Rated:</i></small>
+    <a href="/content-rated" title="Content rating information">
+      <img src="/assets/en_aw_88x31.gif" width="88" height="31" alt="Content Rated">
+    </a>
+  </div>
 </nav>

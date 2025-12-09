@@ -1,5 +1,52 @@
 # Changelog
 
+## Navigation Restructure & Canonicalization (2025-10-25)
+- **Created /about page**: Renamed /start-here → /about for clarity (90-sec tour + keyboard shortcuts)
+- **Redirect stubs**: /start-here, /trust, /trust.html redirect to canonical URLs with meta refresh + noindex
+- **Created /content-rated**: Canonical page for content rating (replaces /trust.html)
+- **astro.config.mjs redirects**: Added 301 redirects for /start-here → /about, /trust* → /content-rated
+- **Left nav updates**:
+  - Added "Index" as first link → /
+  - Changed "Start Here" → "About" → /about
+  - Updated badge link to /content-rated
+  - Added aria-current="page" for active states
+- **Footer nav updates**:
+  - Added "Index" and "About" links
+  - Removed "Start Here" link
+  - Added aria-current states for active page highlighting
+- **Homepage intro**: Added "New here? About →" link below H1 (kept "Start Here" heading)
+- **Back to index**: Added "↑ Back to index" above footer nav on all subpages (monospace, small, center)
+- **Shortcuts hint**: Added "Shortcuts: Evidence [E] · Raw [R] · Full guide" in footer metadata
+- **Logo a11y**: Added aria-label="Workshop Almanac, go to index" to logo link
+- **Active state CSS**: Bold + underline for current page in left nav, bold in footer nav
+- **Badge spacing**: Reduced left nav badge margin from 20px → 12px
+
+## Client-Side Filtering & Content Badge Fixes (2025-10-25)
+- **Client-side catalog filtering**: Replaced SSG filtering with JavaScript-based filtering for instant results
+- **Filter persistence**: URL params work with browser back/forward navigation
+- **Content Rated badge**: Added en_aw_88x31.gif to left nav under Shrine with "Content Rated:" label
+- **Removed duplicate badge**: Removed trust-88x31.gif from footer (now only in left nav)
+- **Left nav badge link**: Points to /trust.html (consolidating content rating pages)
+- **Footer typography**: Removed italics from "Site by" and "Served statically" lines
+- **Badge spacing**: Increased left nav badge top margin from 12px to 20px
+- **Data attributes**: All projects now have data-domain, data-status, data-year for filtering
+
+## ARJ Footer & Navigation Cleanup (2025-10-24)
+- **Removed top navigation bar**: Left nav + footer provide all navigation (reduces redundancy)
+- **ARJ-inspired footer**: Authentic 1999 layout with italic, bold, underlined links
+- **littbut.gif separators**: Brown metallic dots between footer links (8px spacing)
+- **88×31 badges**: Added libreboot.gif and bvbstar.gif alongside trust badge
+- **Semantic HTML**: Footer wrapped in `<address>` tag for 90s authenticity
+- **Copyright & metadata**: PGP fingerprint, site credits, update date, Astro credit
+- **Header simplification**: Logo-only header, proof strip flows directly after
+- **Moved assets**: black_sign.gif to /public/, badges to /public/assets/
+
+## Font Rendering - Rugged Text (2025-10-24)
+- **Disabled font smoothing**: `-webkit-font-smoothing: none` for bitmap/pixelated look
+- **Geometric precision**: `text-rendering: geometricPrecision` for sharp edges
+- **Pixelated images**: `image-rendering: pixelated` for CRT-era graphics
+- **Darker text**: Changed body color to #111 for better contrast with unsmoothed fonts
+
 ## Polish - Authentic 2000s Density (2025-10-24)
 - **Typography hierarchy**: Bold italic headers (H1-H3) for that handcrafted feel
 - **Tight spacing**: Line-height 1.35, paragraph margin 0.35em, tighter list items
@@ -49,7 +96,7 @@
 ## Phase 7 - Seed Content (2025-10-24)
 - Added 3 featured projects: Himorogi (OS/security), RedLLM (AI/security), CREST-SNN (AI/hardware)
 - Added 5 logbook entries (2024-2025), one marked as anomaly
-- Added hardware content: Homunculus BOM and wiring pages
+- Added hardware content: Hephaestus BOM and wiring pages
 - Added 1 technical notebook: Initrd pitfalls
 - Created placeholder images for all artifacts
 
@@ -63,7 +110,7 @@
 - Created catalog.astro: filterable project index with query params
 - Created logbook.astro: chronological entries grouped by year, ALERT marker
 - Created gallery.astro: lazy-loaded image grid from all projects
-- Created hardware.astro: Homunculus build pages grouped by part
+- Created hardware.astro: Hephaestus build pages grouped by part
 - Created notebooks.astro: technical notes index
 - Created start-here.astro: 90-second tour and keyboard shortcuts
 - Created shrine.astro: minimal v1 stub

@@ -1,0 +1,157 @@
+---
+title: Hephaestus
+id: hephaestus
+year: 2025
+domain: ["hardware", "os", "ai"]
+status: "active"
+featured: false
+summary: "<strong>Dual-socket Xeon</strong> lab machine for adversarial network research and trusted compute. Platform integrates GPU passthrough, 40 Gb/s InfiniBand fabric, and VM isolation for security simulations.<ul><li>Tesla M40 (24GB VRAM) with VFIO</li><li>InfiniBand loop via 2× ConnectX-3 HCAs</li><li>Proxmox VE with attacker/victim/sensor VMs</li></ul>"
+metrics:
+  loc: 0
+artifacts:
+  diagram: "/artifacts/hephaestus/network_topology.png"
+  diagram2: "/artifacts/hephaestus/pcie_power_map.png"
+  readme: ""
+  postmortem: "/notebooks/hephaestus-debug"
+images:
+  - "/artifacts/hephaestus/overview.webp"
+  - "/artifacts/hephaestus/topdown.webp"
+  - "/artifacts/hephaestus/dual_cpu.webp"
+related: []
+---
+
+
+
+
+Hephaestus Lab is a self-contained experimental compute and networking environment built inside a single workstation chassis. It combines dual Xeon E5-2650 v3 processors, a Tesla P40 for GPU-accelerated workloads, two ConnectX-3 adapters for a dedicated 40 Gb/s InfiniBand fabric, and an Intel I350-T4 for controlled Ethernet experiments. This hardware supports attacker, victim, and sensor virtual machines, traffic looping and mirroring, and direct host–guest data movement through VFIO passthrough.
+
+The system is designed not as a general-purpose homelab, but as a focused research platform for adversarial simulations, GPU-based packet analysis, and studies of host/device boundaries. Its structure emphasizes compact, high-intensity capabilities—CUDA compute, point-to-point InfiniBand links, and isolated monitoring paths—rather than scale. Future extensions, such as integrating a BlueField card as a hidden co-processor, fit this same direction: examining how tightly coupled subsystems behave under stress, how communication channels can be exposed or obscured, and how constrained environments can support complex red-team and blue-team workflows.
+
+---
+
+### At a glance
+
+- **Platform:** Dual-socket X99/C612, 2× Xeon E5-2650 v3, 32 GB DDR4 ECC RDIMM  
+- **PCIe layout (Throughput Mode / Slot Map A):**
+  - **PCIe x16_1 (CPU lanes)** **->** **Tesla P40**
+  - Power: **PCIe 8‑pin** (dedicated cable from PSU)
+  - **PCIe x16_2 (CPU lanes)** **->** **ConnectX‑3 HCA #1**
+  - No aux power; ensure direct airflow across the heatsink
+  - **M.2 (STRONG, Gen3×4) **->** M.2->x16 powered riser **->** ConnectX‑3 HCA #2**
+  - Riser power: **PCIe 6‑pin** from PSU
+  - **PCIe x1** **->** x16 riser A (powered) **->** Intel I350‑T4**
+  - Riser power: **PCIe 6‑pin** from PSU
+  - **PCIe x1 -> x16 riser B (powered) -> Quadro P400** (slot‑powered)
+  - Riser power: **PCIe 6‑pin** from PSU
+  - **M.2 (WEAK, PCH path) -> empty** (or low‑traffic device / opensm host only)
+- **Networking planes:**
+  - **Gigabit lab plane:** I350-T4 looped through a NETGEAR GS105E v2 (SPAN/VLAN/QoS tricks)
+  - **Management/WAN:** USB Wi-Fi dongle, kept out-of-band from lab traffic
+  - **Fabric plane:** 2×40 Gb/s InfiniBand (dual ConnectX-3, internal loop via QSFP+ DACs)
+- **Virtualization:** Proxmox VE with dedicated VMs:
+  - CUDA-box VM (P40 passthrough)
+  - IB-box VM (HCA #2 passthrough)
+  - Attacker / Victim / Sensor / Mgmt VMs on bridged NICs
+
+---
+
+## **Diagram 1 — Multi-Plane Virtual Networking Topology**
+
+  <div class="diagram-section">
+  <a href="/artifacts/hephaestus/network_topology.png" class="lightbox">
+  <img src="/artifacts/hephaestus/network_topology.png" alt="Network topology" />
+  </a>
+  </div>
+
+This diagram illustrates the allocation of physical network interfaces and virtual bridges into three distinct operational planes, each isolated for specific functions:
+
+1. **Gigabit Ethernet Lab Plane**  
+   An Intel I350-T4 quad-port NIC connects via port 1 to a Netgear GS105E v2 smart switch configured with two internal Cat6 loops (ports 1↔2 and 3↔4). This creates a controlled Layer 2 environment for security research, supporting ARP/DHCP manipulation, VLAN hopping, and traffic capture scenarios. The `vmbr0` bridge backhauls this physical interface to virtual machines (attacker, victim, sniffer, and management VMs), enabling realistic network attack simulations without affecting production infrastructure.
+
+2. **Management/WAN Plane**  
+   An ALFA AWUS036NEH USB Wi-Fi adapter provides the sole Internet connectivity for the Proxmox host, establishing a dedicated management path isolated from experimental traffic. This separation ensures secure remote access, package updates, and data transfer while maintaining the lab's air-gapped nature. Optional NAT routing through the host allows management VMs controlled Internet access without compromising lab isolation.
+
+3. **InfiniBand Fabric Plane**  
+   Two ConnectX-3 HCAs form a dual-link 40 Gb/s InfiniBand fabric via independent QSFP+ DAC cables (port1↔port1 and port2↔port2). The host retains HCA1 with `opensm` running for subnet management, while HCA2 is passed through to a dedicated VM via VFIO. IP-over-InfiniBand (IPoIB) subnets (10.0.40.0/24 and 10.0.41.0/24) provide high-speed connectivity for RDMA protocol testing and simulated storage backplane evaluation.
+
+**Virtual Network Architecture:**  
+- `vmbr0`: Lab domain bridged to I350 port1, carrying all experimental VM traffic
+- `vmbr1`: Internal software bridge for VM-to-VM control traffic and segmentation
+- **VM Assignments:** Attacker/victim/sniffer VMs connect to both bridges; CUDA-box VM uses only `vmbr1`; IB-box VM combines `vmbr1` management with direct HCA2 passthrough
+
+---
+
+## **Diagram 2 — Slot & Power Map (Throughput Mode)**
+
+  <div class="diagram-section">
+  <a href="/artifacts/hephaestus/pcie_power_map.png" class="lightbox">
+  <img src="/artifacts/hephaestus/pcie_power_map.png" alt="PCIe power map" />
+  </a>
+  </div>
+
+This hardware diagram details the physical layout, PCIe allocation, and power distribution for the dual-socket X99/C612 platform, emphasizing electrical safety and performance considerations:
+
+**Core Components:**
+- **CPU:** 2× Xeon E5-2650 v3 (10-core, 40 PCIe lanes each) with QPI interconnect
+- **RAM:** 32 GB DDR4 ECC RDIMM (shared memory domain)
+- **Storage:** Single 2.5" SATA SSD on SATA_0 (Proxmox OS + VM storage)
+- **PSU:** Corsair HX1000i with precise rail allocation
+
+**PCIe Slot Map & Bandwidth:**
+1. **PCIe x16_1 (CPU1):** Tesla P40 (compute GPU) -> PCIe 3.0 ×16 (126 Gb/s)
+2. **PCIe x16_2 (CPU2):** ConnectX-3 HCA1 (host IB) -> PCIe 3.0 ×8 (63 Gb/s)
+3. **M.2 STRONG (CPU1):** ConnectX-3 HCA2 via M.2->x16 riser -> PCIe 3.0 ×4 (31.5 Gb/s)  
+   *Note: Potential bottleneck for dual 40GbE IB (80 Gb/s theoretical)*
+4. **PCIe x1 Slot A (PCH):** I350-T4 via ×1->x16 riser -> PCIe 2.0 ×1 (4 Gb/s)  
+   *Note: Electrical ×1 limits quad 1GbE NIC to ~3.9 Gb/s aggregate*
+5. **PCIe x1 Slot B (PCH):** Quadro P400 (display GPU) via ×1->x16 riser -> PCIe 2.0 ×1
+
+**Power Distribution (Critical Safety Reference):**
+- **CPU Power:** 2× EPS 8-pin to motherboard
+- **PCIe Device Power:**
+  - P40: PCIe 8-pin (6+2) connector
+  - HCA2 riser: PCIe 6-pin #1
+  - I350 riser: PCIe 6-pin #2  
+  - P400 riser: PCIe 6-pin #3
+- **Accessory Power:**
+  - SATA power: SSD + fan hub
+  - Molex: Dedicated to 12V->24V step-up converter for P40 blower fan  
+    *Critical: Never connect blower directly to PSU*
+
+**VFIO Device Assignment:**
+- **Host Retains:** P400 (console), HCA1 (IB fabric), I350 (lab NIC), USB Wi-Fi
+- **CUDA-box VM:** Tesla P40 via full device passthrough
+- **IB-box VM:** ConnectX-3 HCA2 via full device passthrough
+- **Remaining VMs:** VirtIO network interfaces only (no direct hardware access)
+
+**Assembly Notes:**  
+- Powered risers provide additional 12V rail but do not increase PCIe lane count
+- M.2 STRONG provides only ×4 lanes despite x16 physical slot
+- P40 requires dedicated cooling via 24V blower (separate power path)
+- Display and compute GPU separation essential for VFIO compatibility
+- Dual IB links maintain redundancy but HCA2 bandwidth limited by ×4 interface
+---
+
+### What this box is actually for
+
+The design of Hephaestus emphasizes flexibility in network and system topology, allowing configurations to be adjusted as needed rather than fixed.
+
+From the capabilities map: [Use mostly the whole thing from capabilities_map.txt, with emphasis on A-G for core/current setup (e.g., tap/mirroring, CUDA/compute, IB/RDMA, storage topologies, VFIO/IOMMU testing, replay/traffic engineering, security research). Summarize H-M as "stretch/optional/future" axes, like monitoring, topology variables, exotic add-ons (QAT, PCIe Screamer, BlueField-2), physical/power experiments, documentation/story, and BlueField insanity.]
+
+This framework supports the development of standardized experimental modules over time, such as those focused on port mirroring and VLAN management, RDMA-based storage area networks, VFIO reliability assessments, and GPU-supported defensive analytics.
+
+---
+
+### Build notes & logs
+
+This page provides a conceptual framework. Detailed assembly procedures are documented in:
+
+- **Hardware / wiring docs** – [Use full structure and details from Homunculus Lab PDF: Sections 0-10, covering scope, wiring, BIOS/UEFI checklist, identifying strong/weak M.2, Proxmox passthrough setup, IB/RDMA bring-up (including cabling, drivers, IPoIB test, perf expectations ~28-32 Gb/s), GS105E mirror quick start, storage/swap procedure, troubleshooting map (Q-codes, link flaps, etc.), safety notes, and what to record for build log.]
+- **Notebooks / debug logs** – Q-codes encountered, ib_write_bw numbers, thermal tuning, and post-mortems on anything that broke during bring-up
+
+Once those are published, I’ll link them here as:
+
+- `[Build Guide: Slot Map A](/hardware/hephaestus-slot-map-a)`  
+- `[Debug Log: Q-codes & RDMA bring-up](/notebooks/hephaestus-bringup-log)`
+
+For now, the two diagrams and this summary are enough to understand *why* Hephaestus exists and how the planes, slots, and power rails fit together.

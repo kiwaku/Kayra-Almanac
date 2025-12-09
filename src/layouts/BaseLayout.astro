@@ -2,6 +2,7 @@
 import '../styles/theme.css';
 import LeftNav from '../components/LeftNav.astro';
 import ProofStrip from '../components/ProofStrip.astro';
+import InstrumentPanel from '../components/InstrumentPanel.astro';
 const { title = 'Kayra — Workshop Almanac' } = Astro.props;
 ---
 <html lang="en">
@@ -18,16 +19,11 @@ const { title = 'Kayra — Workshop Almanac' } = Astro.props;
   </head>
   <body>
     <header class="header">
-      <div class="brand">Kayra — <span class="muted">Workshop Almanac</span></div>
-      <nav class="topnav">
-        <a href="/start-here" data-portal>Start Here</a>
-        <a href="/catalog" data-portal>Catalog</a>
-        <a href="/logbook" data-portal>Logbook</a>
-        <a href="/hardware" data-portal>Hardware</a>
-        <a href="/notebooks" data-portal>Notebooks</a>
-        <a href="/gallery" data-portal>Gallery</a>
-        <a href="/shrine" class="shrine" aria-label="Shrine (anomaly link)">⛩</a>
-      </nav>
+      <div class="brand">
+        <a href="/" title="Kayra — Workshop Almanac" aria-label="Workshop Almanac, go to index">
+          <img src="/black_sign.gif" alt="Kayra signature" class="logo">
+        </a>
+      </div>
     </header>
 
     <ProofStrip />
@@ -43,31 +39,171 @@ const { title = 'Kayra — Workshop Almanac' } = Astro.props;
     </main>
 
     <footer class="nav-footer">
-      <nav aria-label="Footer links">
-        <a href="/start-here">START HERE</a>
-        <img src="/assets/dot.gif" class="dot" alt="">
-        <a href="/catalog">CATALOG</a>
-        <img src="/assets/dot.gif" class="dot" alt="">
-        <a href="/logbook">LOGBOOK</a>
-        <img src="/assets/dot.gif" class="dot" alt="">
-        <a href="/hardware">HARDWARE</a>
-        <img src="/assets/dot.gif" class="dot" alt="">
-        <a href="/notebooks">NOTEBOOKS</a>
-        <img src="/assets/dot.gif" class="dot" alt="">
-        <a href="/gallery">GALLERY</a>
-      </nav>
-      <div class="copy"><i>© {new Date().getFullYear()} Kayra — Workshop Almanac · Evidence [E] · Raw [R]</i></div>
-    </footer>
+      <address>
+        {Astro.url.pathname !== '/' && (
+          <div class="back-to-index"><small>↑ <a href="/">Back to index</a></small></div>
+        )}
 
-    <div class="trust">
-      <a href="/trust.html" title="Content rating / About this site">
-        <img src="/assets/trust-88x31.gif" width="88" height="31" alt="Content Rated">
-      </a>
-    </div>
+        <nav aria-label="Footer links" class="footer-nav">
+          <a href="/" aria-current={Astro.url.pathname === '/' ? 'page' : undefined}><i><b><u>Index</u></b></i></a>
+          <img src="/assets/littbut.gif" class="dot" alt="•">
+          <a href="/about" aria-current={Astro.url.pathname === '/about' ? 'page' : undefined}><i><b><u>About</u></b></i></a>
+          <img src="/assets/littbut.gif" class="dot" alt="•">
+          <a href="/catalog" aria-current={Astro.url.pathname === '/catalog' ? 'page' : undefined}><i><b><u>Catalog</u></b></i></a>
+          <img src="/assets/littbut.gif" class="dot" alt="•">
+          <a href="/logbook" aria-current={Astro.url.pathname === '/logbook' ? 'page' : undefined}><i><b><u>Logbook</u></b></i></a>
+          <img src="/assets/littbut.gif" class="dot" alt="•">
+          <a href="/hardware" aria-current={Astro.url.pathname === '/hardware' ? 'page' : undefined}><i><b><u>Hardware</u></b></i></a>
+          <img src="/assets/littbut.gif" class="dot" alt="•">
+          <a href="/notebooks" aria-current={Astro.url.pathname === '/notebooks' ? 'page' : undefined}><i><b><u>Notebooks</u></b></i></a>
+          <img src="/assets/littbut.gif" class="dot" alt="•">
+          <a href="/gallery" aria-current={Astro.url.pathname === '/gallery' ? 'page' : undefined}><i><b><u>Gallery</u></b></i></a>
+          <img src="/assets/littbut.gif" class="dot" alt="•">
+          <a href="/shrine" aria-current={Astro.url.pathname === '/shrine' ? 'page' : undefined}><i><b><u>Shrine</u></b></i></a>
+        </nav>
+
+        <div class="footer-meta">
+          <span class="footer-copy">Copyright © {new Date().getFullYear()} Kayra Arai — Workshop Almanac. All rights reserved.</span><br>
+          <small><i>PGP Fingerprint: [REDACTED]</i></small><br>
+          <span class="footer-credits">Site by Kayra Arai · Updated: October, 2025</span><br>
+          <span class="footer-credits">Served statically with Astro · Built without frameworks</span><br>
+          <span class="footer-shortcuts">Shortcuts: Evidence [E] · Raw [R] · <a href="/about">Full guide</a></span>
+        </div>
+      </address>
+    </footer>
 
     <script is:inline src="/evidence-toggle.js" defer></script>
     <script is:inline src="/raw-toggle.js" defer></script>
     <div id="portal-overlay" hidden aria-hidden="true"></div>
+
+    <InstrumentPanel />
+
+    <!-- SNN PANEL -->
+    <div id="snn-panel" class="snn-panel">
+      <div class="snn-panel-inner">
+        <div class="snn-input-traces">
+          <canvas data-input="0" class="snn-input-trace" width="20" height="45"></canvas>
+          <canvas data-input="1" class="snn-input-trace" width="20" height="45"></canvas>
+          <canvas data-input="2" class="snn-input-trace" width="20" height="45"></canvas>
+          <canvas data-input="3" class="snn-input-trace" width="20" height="45"></canvas>
+          <canvas data-input="4" class="snn-input-trace" width="20" height="45"></canvas>
+          <canvas data-input="5" class="snn-input-trace" width="20" height="45"></canvas>
+        </div>
+
+        <div class="snn-svg-wrapper" id="snn-svg-wrapper"></div>
+
+        <div class="snn-output-traces">
+          <canvas data-output="0" class="snn-output-trace" width="20" height="30"></canvas>
+          <canvas data-output="1" class="snn-output-trace" width="20" height="30"></canvas>
+          <canvas data-output="2" class="snn-output-trace" width="20" height="30"></canvas>
+          <canvas data-output="3" class="snn-output-trace" width="20" height="30"></canvas>
+        </div>
+
+        <div class="snn-output-blocks">
+          <div class="snn-block" data-block="0"></div>
+          <div class="snn-block" data-block="1"></div>
+          <div class="snn-block" data-block="2"></div>
+          <div class="snn-block" data-block="3"></div>
+        </div>
+      </div>
+    </div>
+
+    <style>
+      .snn-panel {
+        position: fixed;
+        z-index: 999;
+        pointer-events: none;
+        width: 270px;
+        background: rgba(255, 255, 255, 0.9);
+        padding: 6px;
+        /* SCALE: 67.5% of original size (10% reduction from 75%) */
+        transform: scale(0.675);
+        transform-origin: top left;
+      }
+
+      @media (max-width: 900px) {
+        .snn-panel { display: none; }
+      }
+
+      .snn-panel-inner {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .snn-input-traces {
+        display: flex;
+        gap: 12px;
+        height: 45px;
+        justify-content: center;
+        margin-bottom: 4px;
+      }
+
+      .snn-input-trace {
+        width: 20px;
+        height: 45px;
+        display: block;
+        border: 1px solid #333;
+        background: #fff;
+      }
+
+      .snn-output-traces {
+        display: flex;
+        gap: 8px;
+        height: 30px;
+        justify-content: center;
+        margin-top: 4px;
+        margin-bottom: 4px;
+      }
+
+      .snn-output-trace {
+        width: 20px;
+        height: 30px;
+        display: block;
+        border: 1px solid #333;
+        background: #fff;
+      }
+
+      .snn-svg-wrapper {
+        width: 100%;
+        height: auto;
+      }
+
+      .snn-svg-wrapper svg {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+
+      /* Ensure SVG circles are properly styled and visible */
+      .snn-svg-wrapper svg circle {
+        pointer-events: none;
+      }
+
+      /* Ensure paths don't block circles */
+      .snn-svg-wrapper svg path {
+        pointer-events: none;
+      }
+
+      .snn-output-blocks {
+        display: flex;
+        gap: 4px;
+        margin-top: 4px;
+        justify-content: center;
+      }
+
+      .snn-block {
+        width: 12px;
+        height: 12px;
+        border: 1px solid #444;
+        background: transparent;
+      }
+
+      .snn-block.is-on {
+        background: #222;
+      }
+    </style>
+
 <script is:inline type="module">
   // Intercept top/left nav clicks tagged data-portal (no animation yet)
   function handle(e){
@@ -81,23 +217,651 @@ const { title = 'Kayra — Workshop Almanac' } = Astro.props;
 </script>
 
 <script is:inline>
-document.addEventListener('click', function(e){
-  if(!e.target || !(e.target instanceof Element)) return;
-  const a = e.target.closest('a.lightbox, a.thumb');
-  if(!a) return;
-  e.preventDefault();
-  let lb = document.getElementById('lightbox');
-  if(!lb){
-    lb = document.createElement('div');
-    lb.id = 'lightbox';
-    lb.innerHTML = '<img alt=""><button aria-label="Close">×</button>';
-    document.body.appendChild(lb);
-    lb.addEventListener('click', function(){ if(lb) lb.hidden = true; });
+(function(){
+  let currentZoom = 1;
+  const zoomLevels = [1, 2];
+  let zoomIndex = 0;
+
+  document.addEventListener('click', function(e){
+    if(!e.target || !(e.target instanceof Element)) return;
+    const a = e.target.closest('a.lightbox, a.thumb');
+    if(!a) return;
+    e.preventDefault();
+
+    let lb = document.getElementById('lightbox');
+    if(!lb){
+      lb = document.createElement('div');
+      lb.id = 'lightbox';
+      lb.innerHTML = '<div class="lightbox-container"><img alt=""><div class="zoom-hint">🔍 Click to zoom · ESC to close</div></div><button aria-label="Close">×</button>';
+      document.body.appendChild(lb);
+
+      // Close on background click
+      lb.addEventListener('click', function(ev){
+        if(ev.target === lb || ev.target.tagName === 'BUTTON'){
+          lb.hidden = true;
+          zoomIndex = 0;
+          const img = lb.querySelector('img');
+          if(img) {
+            img.style.transform = 'scale(1)';
+            img.style.cursor = 'zoom-in';
+          }
+        }
+      });
+
+      // Zoom on image click
+      const container = lb.querySelector('.lightbox-container');
+      if(container){
+        container.addEventListener('click', function(ev){
+          const img = lb.querySelector('img');
+          if(!img || ev.target !== img) return;
+          ev.stopPropagation();
+
+          zoomIndex = (zoomIndex + 1) % zoomLevels.length;
+          currentZoom = zoomLevels[zoomIndex];
+          img.style.transform = 'scale(' + currentZoom + ')';
+          img.style.cursor = currentZoom < zoomLevels[zoomLevels.length - 1] ? 'zoom-in' : 'zoom-out';
+
+          // Update hint
+          const hint = lb.querySelector('.zoom-hint');
+          if(hint) {
+            hint.textContent = currentZoom === 1 ? '🔍 Click to zoom · ESC to close' : '🔍 ' + currentZoom + 'x zoom · Click for more';
+          }
+        });
+      }
+
+      // Close on ESC
+      document.addEventListener('keydown', function(ev){
+        if(ev.key === 'Escape' && lb && !lb.hidden){
+          lb.hidden = true;
+          zoomIndex = 0;
+          const img = lb.querySelector('img');
+          if(img) {
+            img.style.transform = 'scale(1)';
+            img.style.cursor = 'zoom-in';
+          }
+        }
+      });
+    }
+
+    const img = lb.querySelector('img');
+    if(img && a instanceof HTMLAnchorElement) {
+      img.src = a.href;
+      img.style.transform = 'scale(1)';
+      img.style.cursor = 'zoom-in';
+      zoomIndex = 0;
+    }
+    lb.hidden = false;
+
+    // Reset hint
+    const hint = lb.querySelector('.zoom-hint');
+    if(hint) hint.textContent = '🔍 Click to zoom · ESC to close';
+  });
+})();
+</script>
+
+<script is:inline>
+// ============================================================
+// SNN PANEL IMPLEMENTATION (6→8→4)
+// ============================================================
+
+(function() {
+  // Browser metrics
+  window.__instrumentMetrics = {
+    vx_norm: 0,
+    vy_norm: 0,
+    scroll_norm: 0,
+    keypress_norm: 0,
+    window_geom_norm: 0,
+    noise_norm: 0
+  };
+
+  let lastMouseX = 0, lastMouseY = 0;
+  let lastWindowW = window.innerWidth, lastWindowH = window.innerHeight;
+
+  document.addEventListener('mousemove', (e) => {
+    const dx = e.clientX - lastMouseX;
+    const dy = e.clientY - lastMouseY;
+    window.__instrumentMetrics.vx_norm = Math.min(1, Math.abs(dx) / 50);
+    window.__instrumentMetrics.vy_norm = Math.min(1, Math.abs(dy) / 50);
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+  });
+
+  document.addEventListener('scroll', () => {
+    window.__instrumentMetrics.scroll_norm = Math.min(1, Math.abs(window.scrollY) / 1000);
+  }, { passive: true });
+
+  document.addEventListener('keydown', () => {
+    window.__instrumentMetrics.keypress_norm = 1.0;
+  });
+
+  window.addEventListener('resize', () => {
+    const dw = Math.abs(window.innerWidth - lastWindowW);
+    const dh = Math.abs(window.innerHeight - lastWindowH);
+    window.__instrumentMetrics.window_geom_norm = Math.min(1, (dw + dh) / 100);
+    lastWindowW = window.innerWidth;
+    lastWindowH = window.innerHeight;
+  });
+
+  // LIF Neuron with spike flash timer
+  class LIFNeuron {
+    constructor(leak, threshold, refractoryPeriod) {
+      this.v = 0;
+      this.leak = leak;
+      this.threshold = threshold;
+      this.refractoryPeriod = refractoryPeriod;
+      this.refractoryTimer = 0;
+      this.spiked = false;
+      this.spikeFlashTimer = 0; // For 100-120ms spike flash
+    }
+
+    update(input, dt) {
+      this.spiked = false;
+
+      // Decay spike flash timer
+      if (this.spikeFlashTimer > 0) {
+        this.spikeFlashTimer -= dt;
+      }
+
+      if (this.refractoryTimer > 0) {
+        this.refractoryTimer -= dt;
+        return false;
+      }
+
+      this.v = this.v * this.leak + input;
+
+      if (this.v >= this.threshold) {
+        this.spiked = true;
+        this.v = 0;
+        this.refractoryTimer = this.refractoryPeriod;
+        this.spikeFlashTimer = 65; // 65ms spike flash
+        return true;
+      }
+      return false;
+    }
+
+    isSpikeFlashing() {
+      return this.spikeFlashTimer > 0;
+    }
+
+    getMembranePotential() {
+      return Math.min(1, this.v / this.threshold);
+    }
   }
-  const img = lb.querySelector('img');
-  if(img && a instanceof HTMLAnchorElement) img.src = a.href;
-  lb.hidden = false;
-});
+
+  // SNN State
+  const inputNeurons = Array.from({ length: 6 }, () => new LIFNeuron(0.93, 0.55, 50));
+  const hiddenNeurons = Array.from({ length: 8 }, (_, i) => new LIFNeuron(0.88 + Math.random() * 0.1, 0.88 + i * 0.05, 70));
+  const outputNeurons = Array.from({ length: 4 }, (_, i) => new LIFNeuron(0.95 + Math.random() * 0.05, 0.88 + i * 0.05, 80));
+
+  // Output gain multipliers (0.875× to 1.125×)
+  const outputGain = Array.from({ length: 4 }, () => 1 + (Math.random() * 0.25 - 0.125));
+
+  // Fixed weights
+  const wInputHidden = Array.from({ length: 6 }, () => Array.from({ length: 8 }, () => (Math.random() * 1.5 - 0.3)));
+  const wHiddenOutput = Array.from({ length: 8 }, () => Array.from({ length: 4 }, () => (Math.random() * 1.5 - 0.3)));
+
+  // Input history (48 frames per input)
+  const inputHistory = Array.from({ length: 6 }, () => new Array(48).fill(0));
+  let historyIdx = 0;
+
+  // Output spike history (60 frames ~ 1 second at 60fps)
+  const outputSpikeHistory = Array.from({ length: 4 }, () => new Array(60).fill(0));
+  let outputHistoryIdx = 0;
+
+  // Output spike history (64 frames for entropy calc)
+  const outputEntropyHistory = Array.from({ length: 4 }, () => new Array(64).fill(0));
+  let entropyHistoryIdx = 0;
+
+  // SNN step
+  function stepSNN(dt) {
+    const m = window.__instrumentMetrics;
+    const inputs = [m.vx_norm, m.vy_norm, m.scroll_norm, m.keypress_norm, m.window_geom_norm, m.noise_norm];
+
+    // Update input history (full values for graph display)
+    inputs.forEach((val, i) => {
+      inputHistory[i][historyIdx] = val;
+    });
+    historyIdx = (historyIdx + 1) % 48;
+
+    // Suppress noise for neuron activation (index 5) - keeps graph same but reduces activation
+    //const neuronInputs = inputs.map((val, i) => i === 5 ? val * 0.61 : val);
+	const neuronInputs = inputs.map((val, i) =>
+	  i === 0 ? val * 0.8 :     // suppress vx
+	  i === 1 ? val * 0.65 :     // suppress vy
+	  i === 5 ? val * 0.61 :     // suppress noise
+	  val
+	);
+	
+
+    // Input layer
+    const inputSpikes = neuronInputs.map((x, i) => inputNeurons[i].update(x, dt));
+
+    // Hidden layer
+    const hiddenInputs = Array(8).fill(0);
+    inputSpikes.forEach((spiked, i) => {
+      if (spiked) {
+        for (let j = 0; j < 8; j++) {
+          hiddenInputs[j] += wInputHidden[i][j];
+        }
+      }
+    });
+    const hiddenSpikes = hiddenInputs.map((x, i) => hiddenNeurons[i].update(x, dt));
+
+    // Output layer
+    const outputInputs = Array(4).fill(0);
+    hiddenSpikes.forEach((spiked, i) => {
+      if (spiked) {
+        for (let j = 0; j < 4; j++) {
+          outputInputs[j] += wHiddenOutput[i][j] * outputGain[j];
+        }
+      }
+    });
+    const outputSpikes = outputInputs.map((x, i) => outputNeurons[i].update(x, dt));
+
+    // Store output spikes for display trace
+    outputSpikes.forEach((spiked, i) => {
+      outputSpikeHistory[i][outputHistoryIdx] = spiked ? 1 : 0;
+    });
+    outputHistoryIdx = (outputHistoryIdx + 1) % 60;
+
+    // Store output spikes for entropy calc
+    outputSpikes.forEach((spiked, i) => {
+      outputEntropyHistory[i][entropyHistoryIdx] = spiked ? 1 : 0;
+    });
+    entropyHistoryIdx = (entropyHistoryIdx + 1) % 64;
+
+    // Decay metrics
+    window.__instrumentMetrics.vx_norm *= 0.9;
+    window.__instrumentMetrics.vy_norm *= 0.9;
+    window.__instrumentMetrics.scroll_norm *= 0.95;
+    window.__instrumentMetrics.keypress_norm *= 0.9;
+    window.__instrumentMetrics.window_geom_norm *= 0.95;
+    window.__instrumentMetrics.noise_norm = Math.random() * 0.1;
+
+    return { inputSpikes, hiddenSpikes, outputSpikes };
+  }
+
+  // Render input traces
+  function renderInputTraces() {
+    const canvases = document.querySelectorAll('.snn-input-trace');
+    canvases.forEach((canvas, idx) => {
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      ctx.clearRect(0, 0, 20, 45);
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+
+      const history = inputHistory[idx];
+      for (let i = 0; i < 48; i++) {
+        const x = (i / 48) * 20;
+        const y = 45 - history[i] * 40;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    });
+  }
+
+  // Render output traces
+  function renderOutputTraces() {
+    const canvases = document.querySelectorAll('.snn-output-trace');
+    canvases.forEach((canvas, idx) => {
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      ctx.clearRect(0, 0, 20, 30);
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+
+      const history = outputSpikeHistory[idx];
+      for (let i = 0; i < 60; i++) {
+        const x = (i / 60) * 20;
+        const y = 30 - history[i] * 25; // Spike = 1, draws near top
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    });
+  }
+
+  // Render input neuron (binary: white or black flash)
+  let inputRenderCount = 0;
+  function renderInputNeuron(neuron, svgCircle, index) {
+    if (!svgCircle) {
+      if (inputRenderCount === 0) console.warn('SNN: Input circle not found');
+      return;
+    }
+    const dot = svgCircle.parentNode.querySelector(`#${svgCircle.id}-dot`);
+    if (!dot) return;
+
+    const fill = neuron.isSpikeFlashing() ? '#000000' : '#ffffff';
+    dot.setAttribute('fill', fill);
+
+    if (inputRenderCount % 300 === 0 && index === 0) {
+      console.log('SNN: Rendering input-1', { fill, spiking: neuron.isSpikeFlashing() });
+    }
+    inputRenderCount++;
+  }
+
+
+  // Render hidden neuron (grayscale membrane + black spike flash)
+  let smoothedMembrane = Array(8).fill(0);
+  function renderHiddenNeuron(neuron, svgCircle, index) {
+    if (!svgCircle) return;
+    const dot = svgCircle.parentNode.querySelector(`#${svgCircle.id}-dot`);
+    if (!dot) return;
+
+    if (neuron.isSpikeFlashing()) {
+      dot.setAttribute('fill', '#000000');
+      return;
+    }
+
+    // VISUAL smoothing only — does not affect neuron physics
+    const raw = neuron.getMembranePotential();
+    smoothedMembrane[index] =
+      smoothedMembrane[index] * 0.85 + raw * 0.15;
+
+    const membrane = smoothedMembrane[index];
+    const grayValue = Math.floor(255 - (membrane * (255 - 46)));
+    const hex = grayValue.toString(16).padStart(2, '0');
+    dot.setAttribute('fill', `#${hex}${hex}${hex}`);
+  }
+
+  // Render output neuron (binary baseline + spike flash)
+  function renderOutputNeuron(neuron, svgCircle, binaryState) {
+    if (!svgCircle) return;
+    const dot = svgCircle.parentNode.querySelector(`#${svgCircle.id}-dot`);
+    if (!dot) return;
+
+    const baseline = binaryState === 1 ? '#000000' : '#ffffff';
+    if (neuron.isSpikeFlashing()) {
+      if (binaryState === 1) {
+        dot.setAttribute('fill', '#333333'); // Lighter gray flash on black
+      } else {
+        dot.setAttribute('fill', '#000000'); // Black flash on white
+      }
+    } else {
+      dot.setAttribute('fill', baseline);
+    }
+  }
+
+  // Calculate entropy and update output blocks
+  function updateOutputBlocks() {
+    const N = 64;
+    const probs = outputEntropyHistory.map(hist => {
+      const sum = hist.reduce((a, b) => a + b, 0);
+      return sum / N;
+    });
+
+    let H = 0;
+    probs.forEach(p => {
+      if (p > 0 && p < 1) {
+        H += -p * Math.log2(p) - (1 - p) * Math.log2(1 - p);
+      }
+    });
+
+    const H_norm = Math.min(1, H / 2); // Max entropy for 4 binary neurons ≈ 2
+    const level = Math.max(0, Math.min(15, Math.floor(H_norm * 16)));
+
+    const bits = [
+      (level >> 3) & 1,
+      (level >> 2) & 1,
+      (level >> 1) & 1,
+      level & 1
+    ];
+
+    const blocks = document.querySelectorAll('.snn-block');
+    bits.forEach((bit, i) => {
+      if (bit === 1) {
+        blocks[i]?.classList.add('is-on');
+      } else {
+        blocks[i]?.classList.remove('is-on');
+      }
+    });
+  }
+
+  // Position SNN panel
+  function positionSNNPanel() {
+    const ip = document.getElementById('instrument-panel');
+    const snn = document.getElementById('snn-panel');
+    if (!ip || !snn) {
+      console.warn('SNN: Missing elements', { ip: !!ip, snn: !!snn });
+      return;
+    }
+
+    const rect = ip.getBoundingClientRect();
+    const MARGIN_Y = 12;
+    snn.style.left = `${rect.left}px`;
+    snn.style.top = `${rect.bottom + MARGIN_Y}px`;
+    console.log('SNN positioned:', { left: rect.left, top: rect.bottom + MARGIN_Y });
+  }
+
+  // Load and inject SVG
+  async function loadSVG() {
+    console.log('SNN: Loading SVG...');
+    const response = await fetch('/assets/neural_graph.svg');
+    if (!response.ok) {
+      console.error('SNN: Failed to load SVG', response.status);
+      return null;
+    }
+    const svgText = await response.text();
+    const parser = new DOMParser();
+    const svgDoc = parser.parseFromString(svgText, 'image/svg+xml');
+    const svg = svgDoc.querySelector('svg');
+    console.log('SNN: SVG parsed, circles found:', svgDoc.querySelectorAll('circle').length);
+
+    // Modify SVG: add IDs to circles (no labels)
+    const circles = Array.from(svgDoc.querySelectorAll('circle'));
+    let inputIdx = 1, hiddenIdx = 1, outputIdx = 1;
+
+    circles.forEach(circle => {
+      const oldId = circle.getAttribute('id');
+      if (!oldId) return;
+
+      const layer = parseInt(oldId.split('_')[0]);
+      let newId;
+
+      if (layer === 0 && inputIdx <= 6) {
+        newId = `input-${inputIdx}`;
+        inputIdx++;
+      } else if (layer === 1 && hiddenIdx <= 8) {
+        newId = `hidden-${hiddenIdx}`;
+        hiddenIdx++;
+      } else if (layer === 2 && outputIdx <= 4) {
+        newId = `output-${outputIdx}`;
+        outputIdx++;
+      }
+
+      if (newId) {
+        circle.setAttribute('id', newId);
+
+        // CRITICAL: Remove inline style attribute - it overrides fill attribute!
+        circle.removeAttribute('style');
+
+        // Set outer circle to white background with stroke
+        circle.setAttribute('fill', '#ffffff');
+        circle.setAttribute('stroke', '#000');
+        circle.setAttribute('stroke-width', '1.5');
+
+        // Create small inner dot for spike/membrane visualization
+        const cx = circle.getAttribute('cx');
+        const cy = circle.getAttribute('cy');
+        const innerDot = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        innerDot.setAttribute('id', `${newId}-dot`);
+        innerDot.setAttribute('cx', cx);
+        innerDot.setAttribute('cy', cy);
+        innerDot.setAttribute('r', '2');
+        innerDot.setAttribute('fill', '#ffffff');
+        innerDot.setAttribute('stroke', 'none');
+        circle.parentNode.appendChild(innerDot);
+
+        console.log(`SNN: Configured circle ${newId}, added inner dot`);
+      }
+    });
+
+    console.log(`SNN: ID assignment complete - inputs:${inputIdx-1}, hidden:${hiddenIdx-1}, outputs:${outputIdx-1}`);
+
+    // Set viewBox to crop - neurons span x:979-1259, y:467.5-827.5
+    // Add margin: x:950-1290 (340px), y:440-850 (410px)
+    svg.setAttribute('viewBox', '950 440 340 410');
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    svg.removeAttribute('width');
+    svg.removeAttribute('height');
+    svg.style.cursor = 'default';
+
+    console.log('SNN: viewBox set to', svg.getAttribute('viewBox'));
+
+    const wrapper = document.getElementById('snn-svg-wrapper');
+    if (wrapper) {
+      wrapper.innerHTML = '';
+      wrapper.appendChild(svg);
+      console.log('SNN: SVG injected into wrapper');
+    } else {
+      console.error('SNN: Wrapper not found');
+    }
+
+    return svg;
+  }
+
+  // Main loop
+  let svgElement = null;
+  let frameCount = 0;
+  function loop() {
+    stepSNN(1);
+    frameCount++;
+
+    renderInputTraces();
+    renderOutputTraces();
+
+    if (svgElement) {
+      // Render input neurons (binary flash)
+      inputNeurons.forEach((neuron, i) => {
+        const circle = svgElement.querySelector(`#input-${i + 1}`);
+        if (frameCount % 60 === 0 && i === 0) {
+          console.log('SNN: Input neuron 1', {
+            spiking: neuron.isSpikeFlashing(),
+            membrane: neuron.getMembranePotential(),
+            circleFound: !!circle
+          });
+        }
+        renderInputNeuron(neuron, circle, i);
+      });
+
+      // Render hidden neurons (grayscale membrane + spike flash)
+      hiddenNeurons.forEach((neuron, i) => {
+        const circle = svgElement.querySelector(`#hidden-${i + 1}`);
+        if (frameCount % 60 === 0 && i === 0) {
+          console.log('SNN: Hidden neuron 1', {
+            spiking: neuron.isSpikeFlashing(),
+            membrane: neuron.getMembranePotential(),
+            circleFound: !!circle,
+            currentFill: circle?.getAttribute('fill')
+          });
+        }
+        renderHiddenNeuron(neuron, circle, i);
+      });
+
+      // Calculate binary state for output neurons from entropy
+      const N = 64;
+      const probs = outputEntropyHistory.map(hist => {
+        const sum = hist.reduce((a, b) => a + b, 0);
+        return sum / N;
+      });
+
+      let H = 0;
+      probs.forEach(p => {
+        if (p > 0 && p < 1) {
+          H += -p * Math.log2(p) - (1 - p) * Math.log2(1 - p);
+        }
+      });
+
+      const H_norm = Math.min(1, H / 2);
+      const level = Math.max(0, Math.min(15, Math.floor(H_norm * 16)));
+      const bits = [
+        (level >> 3) & 1,
+        (level >> 2) & 1,
+        (level >> 1) & 1,
+        level & 1
+      ];
+
+      // Render output neurons (binary baseline + spike flash)
+      outputNeurons.forEach((neuron, i) => {
+        const circle = svgElement.querySelector(`#output-${i + 1}`);
+        renderOutputNeuron(neuron, circle, bits[i]);
+      });
+    }
+
+    updateOutputBlocks();
+
+    requestAnimationFrame(loop);
+  }
+
+  // Init
+  async function init() {
+    console.log('SNN: Initializing...');
+    const panel = document.getElementById('snn-panel');
+    const instrumentPanel = document.getElementById('instrument-panel');
+    console.log('SNN: Elements check', {
+      panel: !!panel,
+      instrumentPanel: !!instrumentPanel
+    });
+
+    svgElement = await loadSVG();
+    if (svgElement) {
+      console.log('SNN: SVG loaded successfully');
+      // Verify we can access circles and dots
+      const testCircle = svgElement.querySelector('#input-1');
+      const testDot = svgElement.querySelector('#input-1-dot');
+      console.log('SNN: Test circle lookup', {
+        circleFound: !!testCircle,
+        dotFound: !!testDot,
+        dotFill: testDot?.getAttribute('fill')
+      });
+    } else {
+      console.error('SNN: SVG loading failed');
+      return;
+    }
+
+    positionSNNPanel();
+    window.addEventListener('resize', positionSNNPanel);
+    window.addEventListener('orientationchange', positionSNNPanel);
+
+    console.log('SNN: Starting animation loop');
+    requestAnimationFrame(loop);
+
+    // Debug: Force a test spike after 2 seconds
+    setTimeout(() => {
+      console.log('SNN: Forcing test spike on input-1');
+      inputNeurons[0].spikeFlashTimer = 65;
+      const dot = svgElement?.querySelector('#input-1-dot');
+      if (dot) {
+        console.log('SNN: Before test spike', {
+          fill: dot.getAttribute('fill')
+        });
+        dot.setAttribute('fill', '#000000');
+        console.log('SNN: After test spike, fill:', dot.getAttribute('fill'));
+        setTimeout(() => {
+          dot.setAttribute('fill', '#ffffff');
+          console.log('SNN: Test spike reset, fill:', dot.getAttribute('fill'));
+        }, 200);
+      } else {
+        console.error('SNN: Test spike - dot not found!');
+      }
+    }, 2000);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      setTimeout(init, 500);
+    });
+  } else {
+    setTimeout(init, 500);
+  }
+})();
 </script>
   </body>
 </html>

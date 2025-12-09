@@ -9,6 +9,7 @@ const project = defineCollection({
     domain: z.array(z.enum(['ai','security','os','hardware','ux','viz'])),
     status: z.enum(['active','archived','paused']),
     featured: z.boolean().default(false),  // NEW: for homepage
+    summary: z.string().optional(),        // Short summary for catalog/index
     metrics: z.object({
       loc: z.number().optional(),
       gpu_hours: z.number().optional(),
@@ -17,6 +18,7 @@ const project = defineCollection({
     }).optional(),
     artifacts: z.object({
       diagram: z.string().optional(),      // /artifacts/.../arch.png
+      diagram2: z.string().optional(),     // Second diagram (for projects like Hephaestus)
       readme: z.string().optional(),       // external or internal
       postmortem: z.string().optional()
     }).optional(),

@@ -12,6 +12,7 @@ const flagships = (await getCollection('projects')).filter(p => p.data.featured)
 <Base title="Kayra — Workshop Almanac">
   <section class="home">
     <h1>Start Here</h1>
+    <p>New here? <a href="/about">About →</a></p>
     <p>Three flagship builds with receipts.</p>
 
     <ol class="numlist">
@@ -20,8 +21,10 @@ const flagships = (await getCollection('projects')).filter(p => p.data.featured)
         const { Content } = await project.render();
         return (
           <li class="block" id={data.id}>
-            <h2><a href={`/catalog#${data.id}`}>{data.title}</a> <span class="muted">({data.year})</span></h2>
-            <div class="abstract"><Content /></div>
+            <h2><a href={`/projects/${data.id}`}>{data.title}</a> <span class="muted">({data.year})</span></h2>
+            <div class="abstract">
+              {data.summary ? <div set:html={data.summary} /> : <Content />}
+            </div>
             <ArtifactRow artifacts={data.artifacts} images={data.images} />
             <div class="badges">
               {data.metrics?.loc && <span class="badge">LOC {data.metrics.loc}</span>}

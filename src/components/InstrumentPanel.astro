@@ -1,0 +1,931 @@
+---
+// InstrumentPanel.astro
+// Minimal diagnostic HUD: cursor, scroll, CPU self-load, velocity sparkline
+// Clean 2000s academic aesthetic — no gimmicks
+---
+
+<div id="instrument-panel" class="instrument-panel">
+  <div class="panel-line coords">
+    <span class="coord-label">x:</span>
+    <span class="coord-val" id="cursor-x">0</span>
+    <span class="coord-label">y:</span>
+    <span class="coord-val" id="cursor-y">0</span>
+  </div>
+  <div class="panel-line">
+    <span class="label">SCROLL:</span>
+    <span class="value" id="scroll-pct">0%</span>
+  </div>
+  <div class="panel-line">
+    <span class="label">SCR:</span>
+    <span class="value" id="screen-info">0×0</span>
+  </div>
+  <div class="panel-line">
+    <span class="label">WIN:</span>
+    <span class="value" id="window-info">0×0</span>
+  </div>
+  <div class="panel-line">
+    <span class="label">DPR:</span>
+    <span class="value" id="dpr-info">1</span>
+  </div>
+  <div class="panel-line">
+    <span class="label">TIME:</span>
+    <span class="value" id="time-display">00:00:00</span>
+  </div>
+  <div class="panel-line">
+    <span class="label">CPU:</span>
+    <span class="value" id="cpu-time">0.0ms</span>
+  </div>
+  <div class="panel-line ua-line">
+    <span class="label">UA:</span>
+    <span class="value ua-value" id="ua-info">—</span>
+  </div>
+  <div class="panel-line velocity-line">
+    <span class="label">VELOCITY:</span>
+  </div>
+  <div class="canvas-wrapper">
+    <canvas id="velocity-canvas" width="80" height="20"></canvas>
+  </div>
+</div>
+
+<style>
+  #instrument-panel {
+    /* Fixed positioning - fully controlled by JS */
+    position: fixed !important;
+    pointer-events: none;
+    inset: auto; /* clears inherited values */
+    z-index: 999;
+
+    /* Dimensions and styling - NO OUTER BORDER */
+    width: 200px;
+    height: auto;
+    background: transparent;
+    padding: 8px 10px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 11px;
+    line-height: 16px;
+    user-select: none;
+
+    /* Position controlled entirely by JS - no CSS defaults */
+  }
+
+  .panel-line {
+    margin-bottom: 5px;
+  }
+
+  /* Coordinate line with fixed-width columns */
+  .panel-line.coords {
+    display: grid;
+    grid-template-columns: auto 1fr auto 1fr;
+    gap: 4px;
+  }
+
+  .coord-label {
+    text-align: left;
+  }
+
+  .coord-val {
+    text-align: right;
+    min-width: 50px;
+  }
+
+  .label {
+    display: inline-block;
+    width: 64px;
+  }
+
+  .value {
+    display: inline-block;
+  }
+
+  /* User agent line - allow wrapping for long strings */
+  .panel-line.ua-line {
+    display: block;
+  }
+
+  /* Velocity line - extra spacing above for visual separation */
+  .panel-line.velocity-line {
+    margin-top: 8px;
+  }
+
+  .ua-value {
+    display: block;
+    font-size: 10px;
+    line-height: 13px;
+    word-break: break-word;
+    white-space: pre-line;
+    margin-top: 2px;
+    max-width: 180px;
+  }
+
+  /* Canvas wrapper with border and padding - ONLY element with border */
+  .canvas-wrapper {
+    margin-top: 3px;
+    border: 1px solid #ccc;
+    padding: 5px;
+    display: inline-block;
+    background: #fff;
+  }
+
+  #velocity-canvas {
+    display: block;
+    background: transparent;
+  }
+
+  @media (max-width: 800px) {
+    .instrument-panel {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  // InstrumentPanel logic — pure JS, no dependencies
+  // Updates: cursor, scroll, time, screen, window, DPR, UA, CPU, velocity sparkline
+
+  const cursorXEl = document.getElementById('cursor-x');
+  const cursorYEl = document.getElementById('cursor-y');
+  const scrollEl = document.getElementById('scroll-pct');
+  const timeEl = document.getElementById('time-display');
+  const screenEl = document.getElementById('screen-info');
+  const windowEl = document.getElementById('window-info');
+  const dprEl = document.getElementById('dpr-info');
+  const uaEl = document.getElementById('ua-info');
+  const cpuEl = document.getElementById('cpu-time');
+  const canvas = document.getElementById('velocity-canvas') as HTMLCanvasElement;
+  const ctx = canvas?.getContext('2d');
+
+  if (!cursorXEl || !cursorYEl || !scrollEl || !timeEl || !screenEl || !windowEl || !dprEl || !uaEl || !cpuEl || !canvas || !ctx) {
+    console.warn('InstrumentPanel: missing DOM elements');
+  } else {
+    // State
+    let cursorX = 0;
+    let cursorY = 0;
+    let scrollPct = 0;
+    let lastCursorX = 0;
+    let lastCursorY = 0;
+
+    // Velocity buffer (80 samples max)
+    const VELOCITY_BUFFER_SIZE = 80;
+    const velocityBuffer: number[] = new Array(VELOCITY_BUFFER_SIZE).fill(0);
+    let velocityIndex = 0;
+
+    // Rolling maximum for velocity normalization (~1.5 seconds at 60fps = ~90 samples)
+    const ROLLING_MAX_WINDOW = 90;
+    const rollingMaxBuffer: number[] = new Array(ROLLING_MAX_WINDOW).fill(0);
+    let rollingMaxIndex = 0;
+    let rollingMax = 1;
+    const DECAY_RATE = 0.995; // Gradual decay when idle
+
+    // CPU timing buffer (last 60 frames for 99th percentile)
+    const CPU_BUFFER_SIZE = 60;
+    const cpuBuffer: number[] = new Array(CPU_BUFFER_SIZE).fill(0);
+    let cpuIndex = 0;
+
+    // FPS tracking
+    let lastFrameTime = performance.now();
+    let frameCount = 0;
+    let fps = 60;
+
+    // Event handlers
+    function onMouseMove(e: MouseEvent) {
+      cursorX = Math.round(e.clientX);
+      cursorY = Math.round(e.clientY);
+    }
+
+    function onScroll() {
+      const docEl = document.documentElement;
+      const scrollTop = docEl.scrollTop;
+      const scrollHeight = docEl.scrollHeight - docEl.clientHeight;
+      scrollPct = scrollHeight > 0 ? Math.round((scrollTop / scrollHeight) * 100) : 0;
+    }
+
+    // Update time display (HH:MM:SS)
+    function updateTime() {
+      const now = new Date();
+      const h = String(now.getHours()).padStart(2, '0');
+      const m = String(now.getMinutes()).padStart(2, '0');
+      const s = String(now.getSeconds()).padStart(2, '0');
+      if (timeEl) timeEl.textContent = `${h}:${m}:${s}`;
+    }
+
+    // Initialize static system info
+    function initSystemInfo() {
+      // Screen resolution
+      const w = window.screen.width;
+      const h = window.screen.height;
+      let screenInfo = `${w}×${h}`;
+
+      // Try to detect refresh rate
+      try {
+        // @ts-ignore - experimental API
+        const screenDetails = window.screen as any;
+        if (screenDetails.refreshRate) {
+          screenInfo += ` @ ${Math.round(screenDetails.refreshRate)}Hz`;
+        }
+      } catch (e) {
+        // Refresh rate not available, omit Hz
+      }
+
+      if (screenEl) screenEl.textContent = screenInfo;
+
+      // Device Pixel Ratio
+      if (dprEl) dprEl.textContent = String(window.devicePixelRatio || 1);
+
+      // User Agent (parsed for readability)
+      if (uaEl) {
+        const ua = navigator.userAgent;
+
+        // Parse OS
+        let os = 'Unknown';
+        if (ua.includes('Windows')) os = 'Windows';
+        else if (ua.includes('Mac OS X')) {
+          const match = ua.match(/Mac OS X ([\d_]+)/);
+          os = match ? `macOS ${match[1].replace(/_/g, '.')}` : 'macOS';
+        }
+        else if (ua.includes('Linux')) os = 'Linux';
+        else if (ua.includes('Android')) os = 'Android';
+        else if (ua.includes('iOS')) os = 'iOS';
+
+        // Parse browser
+        let browser = 'Unknown';
+        if (ua.includes('Chrome') && !ua.includes('Edg')) {
+          const match = ua.match(/Chrome\/([\d.]+)/);
+          browser = match ? `Chrome ${match[1]}` : 'Chrome';
+        } else if (ua.includes('Safari') && !ua.includes('Chrome')) {
+          const match = ua.match(/Version\/([\d.]+)/);
+          browser = match ? `Safari ${match[1]}` : 'Safari';
+        } else if (ua.includes('Firefox')) {
+          const match = ua.match(/Firefox\/([\d.]+)/);
+          browser = match ? `Firefox ${match[1]}` : 'Firefox';
+        } else if (ua.includes('Edg')) {
+          const match = ua.match(/Edg\/([\d.]+)/);
+          browser = match ? `Edge ${match[1]}` : 'Edge';
+        }
+
+        // Parse engine
+        let engine = '';
+        if (ua.includes('AppleWebKit')) {
+          const match = ua.match(/AppleWebKit\/([\d.]+)/);
+          engine = match ? `WebKit ${match[1]}` : 'WebKit';
+        } else if (ua.includes('Gecko')) {
+          engine = 'Gecko';
+        }
+
+        // Format output on separate lines
+        uaEl.textContent = `${os}\n${browser}\n${engine}`;
+      }
+    }
+
+    // Update window dimensions (changes on resize)
+    function updateWindowInfo() {
+      if (windowEl) {
+        windowEl.textContent = `${window.innerWidth}×${window.innerHeight}`;
+      }
+    }
+
+    // Compute velocity (distance from last position)
+    function computeVelocity(): number {
+      const dx = cursorX - lastCursorX;
+      const dy = cursorY - lastCursorY;
+      lastCursorX = cursorX;
+      lastCursorY = cursorY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    // Update rolling maximum for velocity normalization
+    function updateRollingMax(velocity: number) {
+      rollingMaxBuffer[rollingMaxIndex] = velocity;
+      rollingMaxIndex = (rollingMaxIndex + 1) % ROLLING_MAX_WINDOW;
+
+      // Find max in rolling window
+      const currentMax = Math.max(...rollingMaxBuffer);
+
+      // Apply decay
+      rollingMax = Math.max(currentMax, rollingMax * DECAY_RATE);
+
+      // Ensure minimum scale
+      if (rollingMax < 1) rollingMax = 1;
+    }
+
+    // Get 99th percentile from CPU buffer
+    function get99thPercentile(): number {
+      const sorted = [...cpuBuffer].sort((a, b) => a - b);
+      const idx = Math.floor(sorted.length * 0.99);
+      return sorted[idx] || 0;
+    }
+
+    // Draw sparkline
+    function drawSparkline() {
+      if (!ctx) return;
+
+      ctx.clearRect(0, 0, 80, 20);
+
+      // Use rolling maximum for scaling
+      const maxVel = rollingMax;
+
+      // Draw polyline
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+
+      for (let i = 0; i < VELOCITY_BUFFER_SIZE; i++) {
+        const dataIdx = (velocityIndex - VELOCITY_BUFFER_SIZE + i + 1 + VELOCITY_BUFFER_SIZE) % VELOCITY_BUFFER_SIZE;
+        const vel = velocityBuffer[dataIdx];
+        const x = i;
+        const y = 20 - (vel / maxVel) * 18; // Scale to canvas height, leave 2px margin
+
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      }
+
+      ctx.stroke();
+    }
+
+    // Main render loop
+    function render() {
+      const frameStart = performance.now();
+
+      // Update velocity
+      const rawVelocity = computeVelocity();
+      velocityBuffer[velocityIndex] = rawVelocity;
+      velocityIndex = (velocityIndex + 1) % VELOCITY_BUFFER_SIZE;
+
+      // Update rolling maximum for normalization
+      updateRollingMax(rawVelocity);
+
+      // Update DOM (with null checks)
+      if (cursorXEl) cursorXEl.textContent = String(cursorX);
+      if (cursorYEl) cursorYEl.textContent = String(cursorY);
+      if (scrollEl) scrollEl.textContent = `${scrollPct}%`;
+
+      // Draw sparkline
+      drawSparkline();
+
+      // Measure frame time (panel self-load)
+      const frameEnd = performance.now();
+      const frameTime = frameEnd - frameStart;
+      cpuBuffer[cpuIndex] = frameTime;
+      cpuIndex = (cpuIndex + 1) % CPU_BUFFER_SIZE;
+
+      // Update CPU display (99th percentile)
+      const cpu99 = get99thPercentile();
+      if (cpuEl) cpuEl.textContent = `${cpu99.toFixed(1)}ms`;
+
+      // Track FPS
+      frameCount++;
+      const elapsed = frameEnd - lastFrameTime;
+      if (elapsed >= 1000) {
+        fps = (frameCount * 1000) / elapsed;
+        frameCount = 0;
+        lastFrameTime = frameEnd;
+      }
+
+      requestAnimationFrame(render);
+    }
+
+    // Initialize
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('scroll', onScroll, { passive: true });
+
+    // Initial updates
+    onScroll();
+    initSystemInfo();
+    updateWindowInfo();
+    updateTime();
+
+    // Update time every second
+    setInterval(updateTime, 1000);
+
+    // Start render loop
+    requestAnimationFrame(render);
+  }
+
+  // ============================================================
+  // DEBUG GRIDLINES - TEMPORARY
+  // Remove this entire function when done testing
+  // ============================================================
+  function createDebugGridlines() {
+    // Remove existing gridlines if any
+    const existing = document.getElementById('debug-gridlines');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'debug-gridlines';
+    overlay.style.cssText = `
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 99998;
+    `;
+
+    // Quarter lines (25%, 50%, 75%)
+    const quarters = [
+      { pos: '25%', label: '1/4', color: 'cyan' },
+      { pos: '50%', label: '1/2 (VIEWPORT)', color: 'red' },
+      { pos: '75%', label: '3/4', color: 'cyan' }
+    ];
+
+    quarters.forEach(({ pos, label, color }) => {
+      const line = document.createElement('div');
+      line.style.cssText = `
+        position: absolute;
+        left: ${pos};
+        top: 0;
+        bottom: 0;
+        width: ${color === 'red' ? '2px' : '1px'};
+        background: ${color};
+        opacity: 0.5;
+      `;
+
+      const lineLabel = document.createElement('div');
+      lineLabel.textContent = label;
+      lineLabel.style.cssText = `
+        position: absolute;
+        left: ${pos};
+        top: 10px;
+        transform: translateX(-50%);
+        background: ${color};
+        color: white;
+        padding: 2px 6px;
+        font: 10px monospace;
+        opacity: 0.9;
+      `;
+
+      overlay.appendChild(line);
+      overlay.appendChild(lineLabel);
+    });
+
+    // Third lines (33.33%, 66.67%)
+    const thirds = [
+      { pos: '33.33%', label: '1/3', color: 'orange' },
+      { pos: '66.67%', label: '2/3', color: 'orange' }
+    ];
+
+    thirds.forEach(({ pos, label, color }) => {
+      const line = document.createElement('div');
+      line.style.cssText = `
+        position: absolute;
+        left: ${pos};
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background: ${color};
+        opacity: 0.6;
+      `;
+
+      const lineLabel = document.createElement('div');
+      lineLabel.textContent = label;
+      lineLabel.style.cssText = `
+        position: absolute;
+        left: ${pos};
+        top: 70px;
+        transform: translateX(-50%);
+        background: ${color};
+        color: white;
+        padding: 2px 6px;
+        font: 10px monospace;
+        opacity: 0.9;
+      `;
+
+      overlay.appendChild(line);
+      overlay.appendChild(lineLabel);
+    });
+
+    // Horizontal lines (every 25%)
+    for (let i = 1; i < 4; i++) {
+      const hLine = document.createElement('div');
+      const pos = i * 25;
+      hLine.style.cssText = `
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: ${pos}%;
+        height: 1px;
+        background: cyan;
+        opacity: 0.3;
+      `;
+
+      const hLabel = document.createElement('div');
+      hLabel.textContent = `${pos}%`;
+      hLabel.style.cssText = `
+        position: absolute;
+        right: 10px;
+        top: ${pos}%;
+        transform: translateY(-50%);
+        background: cyan;
+        color: white;
+        padding: 2px 4px;
+        font: 9px monospace;
+        opacity: 0.8;
+      `;
+
+      overlay.appendChild(hLine);
+      overlay.appendChild(hLabel);
+    }
+
+    // Left navigation bounds
+    const leftNav = document.querySelector('.shell > .left');
+    if (leftNav) {
+      const navRect = leftNav.getBoundingClientRect();
+
+      // Left nav background
+      const navBg = document.createElement('div');
+      navBg.style.cssText = `
+        position: absolute;
+        left: ${navRect.left}px;
+        top: ${navRect.top}px;
+        width: ${navRect.width}px;
+        height: ${navRect.height}px;
+        background: purple;
+        opacity: 0.1;
+      `;
+
+      // Left edge
+      const navLeftEdge = document.createElement('div');
+      navLeftEdge.style.cssText = `
+        position: absolute;
+        left: ${navRect.left}px;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: purple;
+        opacity: 0.6;
+      `;
+
+      // Right edge
+      const navRightEdge = document.createElement('div');
+      navRightEdge.style.cssText = `
+        position: absolute;
+        left: ${navRect.right}px;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: purple;
+        opacity: 0.6;
+      `;
+
+      // Label
+      const navLabel = document.createElement('div');
+      navLabel.textContent = 'LEFT NAV';
+      navLabel.style.cssText = `
+        position: absolute;
+        left: ${navRect.left + 5}px;
+        top: 70px;
+        background: purple;
+        color: white;
+        padding: 2px 6px;
+        font: 10px monospace;
+        opacity: 0.9;
+      `;
+
+      overlay.appendChild(navBg);
+      overlay.appendChild(navLeftEdge);
+      overlay.appendChild(navRightEdge);
+      overlay.appendChild(navLabel);
+    }
+
+    // Content bounds
+    const content = document.querySelector('.shell > .content');
+    if (content) {
+      const rect = content.getBoundingClientRect();
+
+      // Content background
+      const contentBg = document.createElement('div');
+      contentBg.style.cssText = `
+        position: absolute;
+        left: ${rect.left}px;
+        top: ${rect.top}px;
+        width: ${rect.width}px;
+        height: ${rect.height}px;
+        background: blue;
+        opacity: 0.05;
+      `;
+
+      // Left edge
+      const leftEdge = document.createElement('div');
+      leftEdge.style.cssText = `
+        position: absolute;
+        left: ${rect.left}px;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: blue;
+        opacity: 0.6;
+      `;
+
+      // Right edge
+      const rightEdge = document.createElement('div');
+      rightEdge.style.cssText = `
+        position: absolute;
+        left: ${rect.right}px;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: blue;
+        opacity: 0.6;
+      `;
+
+      // Content center
+      const contentCenter = document.createElement('div');
+      const contentCenterX = rect.left + rect.width / 2;
+      contentCenter.style.cssText = `
+        position: absolute;
+        left: ${contentCenterX}px;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: green;
+        opacity: 0.6;
+      `;
+
+      // Label for content center
+      const ccLabel = document.createElement('div');
+      ccLabel.textContent = 'CONTENT CENTER';
+      ccLabel.style.cssText = `
+        position: absolute;
+        left: ${contentCenterX}px;
+        top: 40px;
+        transform: translateX(-50%);
+        background: green;
+        color: white;
+        padding: 2px 6px;
+        font: 10px monospace;
+        opacity: 0.9;
+      `;
+
+      overlay.appendChild(contentBg);
+      overlay.appendChild(leftEdge);
+      overlay.appendChild(rightEdge);
+      overlay.appendChild(contentCenter);
+      overlay.appendChild(ccLabel);
+    }
+
+    // InstrumentPanel bounds
+    const panel = document.getElementById('instrument-panel');
+    if (panel) {
+      const panelRect = panel.getBoundingClientRect();
+
+      // Panel background
+      const panelBg = document.createElement('div');
+      panelBg.style.cssText = `
+        position: absolute;
+        left: ${panelRect.left}px;
+        top: ${panelRect.top}px;
+        width: ${panelRect.width}px;
+        height: ${panelRect.height}px;
+        background: orange;
+        opacity: 0.1;
+      `;
+
+      // Panel outline
+      const panelOutline = document.createElement('div');
+      panelOutline.style.cssText = `
+        position: absolute;
+        left: ${panelRect.left}px;
+        top: ${panelRect.top}px;
+        width: ${panelRect.width}px;
+        height: ${panelRect.height}px;
+        border: 2px solid orange;
+        opacity: 0.6;
+      `;
+
+      // Panel label
+      const panelLabel = document.createElement('div');
+      panelLabel.textContent = 'INSTRUMENT PANEL';
+      panelLabel.style.cssText = `
+        position: absolute;
+        left: ${panelRect.left + 5}px;
+        top: ${panelRect.top - 20}px;
+        background: orange;
+        color: white;
+        padding: 2px 6px;
+        font: 10px monospace;
+        opacity: 0.9;
+      `;
+
+      overlay.appendChild(panelBg);
+      overlay.appendChild(panelOutline);
+      overlay.appendChild(panelLabel);
+    }
+
+    // Body bounds
+    const body = document.body;
+    const bodyRect = body.getBoundingClientRect();
+
+    const bodyLeftEdge = document.createElement('div');
+    bodyLeftEdge.style.cssText = `
+      position: absolute;
+      left: ${bodyRect.left}px;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background: gray;
+      opacity: 0.4;
+    `;
+
+    const bodyRightEdge = document.createElement('div');
+    bodyRightEdge.style.cssText = `
+      position: absolute;
+      left: ${bodyRect.right}px;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background: gray;
+      opacity: 0.4;
+    `;
+
+    overlay.appendChild(bodyLeftEdge);
+    overlay.appendChild(bodyRightEdge);
+    document.body.appendChild(overlay);
+  }
+  // ============================================================
+  // END DEBUG GRIDLINES
+  // ============================================================
+
+  // ============================================================
+  // Dynamic positioning logic
+  // ============================================================
+
+  function positionInstrumentPanel() {
+    const panel = document.getElementById('instrument-panel');
+
+    // ============================================================
+    // REFACTOR 2024: Anchor to .shell instead of .content
+    // ROLLBACK: Replace this block with the old code (see git history or backup)
+    // ============================================================
+    const shell = document.querySelector('.shell') as HTMLElement | null;
+
+    if (!panel || !shell) {
+      console.warn('InstrumentPanel: positioning elements not found');
+      return;
+    }
+
+    const rect = shell.getBoundingClientRect();
+    const spaceRight = window.innerWidth - rect.right;
+
+    // Responsive padding: 4% of viewport, min 16px, max 80px
+    const padding = Math.min(80, Math.max(16, window.innerWidth * 0.04));
+
+    // Check if there's enough room to the right
+    if (spaceRight >= panel.offsetWidth + padding) {
+      // Position to the right of shell (which includes nav + content)
+      panel.style.position = 'fixed';
+      panel.style.left = `${rect.right + padding}px`;
+      panel.style.right = 'auto';
+
+      // Position at 10% from viewport top
+      const y = window.innerHeight * 0.1;
+      panel.style.top = `${y}px`;
+
+      panel.classList.remove('is-overlay');
+
+      // ============================================================
+      // AUTO-CENTERING: Center entire visual block [shell + panel]
+      // ============================================================
+      const header = document.querySelector('.header') as HTMLElement | null;
+
+      // Calculate total visual width
+      const totalVisualWidth = rect.width + padding + panel.offsetWidth;
+
+      // Calculate shift needed to center the visual block at viewport 50%
+      const viewportCenter = window.innerWidth / 2;
+      const visualBlockCenter = totalVisualWidth / 2;
+      const currentShellLeft = rect.left;
+
+      // Shift = where we want the visual block to start
+      const desiredShellLeft = viewportCenter - visualBlockCenter;
+      const shift = desiredShellLeft - currentShellLeft;
+
+      // Apply shift to shell and header
+      shell.style.marginLeft = `${shift}px`;
+      if (header) {
+        header.style.marginLeft = `${shift}px`;
+      }
+      // ============================================================
+      // END AUTO-CENTERING
+      // ============================================================
+    // ============================================================
+    // END REFACTOR
+    // ============================================================
+    } else {
+      // Fallback overlay position
+      panel.style.position = 'fixed';
+      panel.style.left = 'auto';
+      panel.style.right = '10px';
+      panel.style.top = '60%';
+
+      panel.classList.add('is-overlay');
+
+      // Reset margins when panel is in overlay mode
+      const header = document.querySelector('.header') as HTMLElement | null;
+
+      shell.style.marginLeft = '0';
+      if (header) {
+        header.style.marginLeft = '0';
+      }
+    }
+  }
+
+  // Update window info on resize
+  function handleResize() {
+    const windowEl = document.getElementById('window-info');
+    if (windowEl) {
+      windowEl.textContent = `${window.innerWidth}×${window.innerHeight}`;
+    }
+    positionInstrumentPanel();
+
+    // TEMP: Update gridlines on resize if enabled
+    const toggle = document.getElementById('debug-gridlines-toggle') as HTMLInputElement;
+    if (toggle && toggle.checked) {
+      createDebugGridlines();
+    }
+  }
+
+  // ============================================================
+  // DEBUG TOGGLE UI - TEMPORARY
+  // Remove this entire block when done testing
+  // ============================================================
+  function createDebugToggle() {
+    const existing = document.getElementById('debug-toggle-ui');
+    if (existing) return; // Already exists
+
+    const toggle = document.createElement('div');
+    toggle.id = 'debug-toggle-ui';
+    toggle.style.cssText = `
+      position: fixed;
+      bottom: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 8px 12px;
+      border-radius: 4px;
+      font: 12px monospace;
+      z-index: 99999;
+      pointer-events: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    `;
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.id = 'debug-gridlines-toggle';
+    checkbox.checked = true; // Start enabled
+    checkbox.style.cssText = `
+      cursor: pointer;
+      width: 16px;
+      height: 16px;
+    `;
+
+    const label = document.createElement('label');
+    label.htmlFor = 'debug-gridlines-toggle';
+    label.textContent = 'Show Debug Gridlines';
+    label.style.cssText = `
+      cursor: pointer;
+      user-select: none;
+    `;
+
+    checkbox.addEventListener('change', (e) => {
+      const target = e.target as HTMLInputElement;
+      if (target.checked) {
+        createDebugGridlines();
+      } else {
+        const gridlines = document.getElementById('debug-gridlines');
+        if (gridlines) gridlines.remove();
+      }
+    });
+
+    toggle.appendChild(checkbox);
+    toggle.appendChild(label);
+    document.body.appendChild(toggle);
+  }
+  // ============================================================
+  // END DEBUG TOGGLE UI
+  // ============================================================
+
+  // Run positioning on load and resize
+  if (typeof window !== 'undefined') {
+    // Initial position after DOM loads
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => {
+        positionInstrumentPanel();
+        createDebugToggle(); // TEMP: Add debug toggle
+        createDebugGridlines(); // TEMP: Show gridlines on load
+      });
+    } else {
+      // Small delay to ensure layout is settled
+      setTimeout(() => {
+        positionInstrumentPanel();
+        createDebugToggle(); // TEMP: Add debug toggle
+        createDebugGridlines(); // TEMP: Show gridlines on load
+      }, 100);
+    }
+
+    // Re-position on resize and orientation change
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
+  }
+</script>

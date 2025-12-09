@@ -1,0 +1,184 @@
+---
+import Base from '../layouts/SectionLayout.astro';
+---
+<Base title="About">
+  <h1>About</h1>
+
+  <p>Systems engineer focused on security infrastructure, adversarial ML, and bare-metal experimentation. This site documents hardware builds, evaluation frameworks, and low-level tooling.</p>
+
+  <h2>Technical Background</h2>
+
+  <h3>Areas of Focus</h3>
+  <ul>
+    <li><strong>Security:</strong> Adversarial networks, red-team simulations, VFIO isolation</li>
+    <li><strong>ML:</strong> Jailbreak eval, toxicity probes, spiking neural networks</li>
+    <li><strong>Hardware:</strong> PCIe passthrough, InfiniBand fabric, thermal management</li>
+    <li><strong>Systems:</strong> Proxmox VE, IOMMU/VT-d, RDMA protocols</li>
+  </ul>
+
+  <h3>Tools & Stack</h3>
+  <p class="tech-line"><em>Languages:</em> Python, C, Bash, Verilog</p>
+  <p class="tech-line"><em>Platforms:</em> Proxmox VE, InfiniBand, CUDA, Linux KVM</p>
+  <p class="tech-line"><em>Hardware:</em> Xeon E5-v3, Tesla P40, ConnectX-3, NETGEAR GS105E</p>
+
+  <h2>Current Work</h2>
+
+  <p>Building adversarial network testbeds for GPU-accelerated threat detection. Exploring CUDA-based packet analysis and RDMA attack vectors in the Hephaestus lab environment.</p>
+
+  <h2>Timeline</h2>
+
+  <ul class="timeline">
+    <li>
+      <div class="timeline-marker">
+        <img src="/assets/flags/tr.gif" alt="Turkey" class="flag" />
+      </div>
+      <div class="timeline-content">
+        <strong>Istanbul, 2025</strong>
+        <ul class="bullets-circle">
+          <li>Built Hephaestus lab for adversarial network research</li>
+          <li>GPU-accelerated packet analysis and VFIO experimentation</li>
+        </ul>
+      </div>
+    </li>
+    <li>
+      <div class="timeline-marker">
+        <img src="/assets/flags/us.gif" alt="United States" class="flag" />
+      </div>
+      <div class="timeline-content">
+        <strong>San Francisco, 2024</strong>
+        <ul class="bullets-circle">
+          <li>Developed RedLLM eval harness for jailbreak testing</li>
+          <li>Toxicity probes and compliance reporting</li>
+        </ul>
+      </div>
+    </li>
+    <li>
+      <div class="timeline-marker">
+        <img src="/assets/flags/jp.gif" alt="Japan" class="flag" />
+      </div>
+      <div class="timeline-content">
+        <strong>Tokyo, 2023</strong>
+        <ul class="bullets-circle">
+          <li>Research on spiking neural networks</li>
+          <li>FPGA acceleration (CREST-SNN)</li>
+        </ul>
+      </div>
+    </li>
+  </ul>
+
+  <h2>Contact & Links</h2>
+
+  <p><strong>Resume:</strong> <a href="/resume.pdf">[PDF]</a></p>
+  <p><strong>Email:</strong> [your-email@example.com]</p>
+  <p><strong>GitHub:</strong> <a href="https://github.com/yourusername">github.com/yourusername</a></p>
+
+  <h2>Site Philosophy</h2>
+
+  <p>This site is artifact-first: diagrams, wiring photos, benchmark logs, and READMEs are linked directly from each project card. No marketing speak, no hand-waving. If it's documented here, it's been built, tested, and logged.</p>
+</Base>
+
+<style>
+  /* Section spacing */
+  h2 {
+    margin-top: 2.5em;
+    padding-top: 1em;
+    border-top: 1px solid #e0e0e0;
+  }
+
+  h2:first-of-type {
+    margin-top: 1.5em;
+    border-top: none;
+  }
+
+  /* Subsection headers - smaller, less prominent */
+  h3 {
+    font-size: 16px;
+    font-weight: bold;
+    font-style: normal;
+    margin-top: 1.2em;
+    margin-bottom: 0.6em;
+    color: #444;
+  }
+
+  /* Tech stack lines with italic labels */
+  .tech-line {
+    margin: 0.25em 0;
+    line-height: 1.5;
+  }
+
+  .tech-line em {
+    font-style: italic;
+    color: #666;
+    min-width: 90px;
+    display: inline-block;
+  }
+
+  .timeline {
+    list-style: none;
+    padding-left: 0;
+    margin: 1.5em 0;
+    position: relative;
+  }
+
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #ccc;
+  }
+
+  .timeline li {
+    margin-bottom: 2em;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    position: relative;
+  }
+
+  .timeline li:last-child {
+    margin-bottom: 0;
+  }
+
+  .timeline-marker {
+    flex-shrink: 0;
+    width: 16px;
+    display: flex;
+    justify-content: center;
+    z-index: 1;
+    background: white;
+  }
+
+  .timeline-marker .flag {
+    width: 16px;
+    height: 11px;
+    image-rendering: pixelated;
+  }
+
+  .timeline-content {
+    flex: 1;
+    padding-top: 0;
+  }
+
+  .timeline-content strong {
+    display: block;
+    margin-bottom: 0.5em;
+  }
+
+  .timeline-content ul {
+    margin: 0;
+    padding-left: 1.2em;
+  }
+
+  .timeline-content ul li {
+    margin-bottom: 0.35em;
+    display: list-item;
+  }
+
+  /* White circle bullets for timeline */
+  .bullets-circle li {
+    list-style-type: circle;
+  }
+</style>

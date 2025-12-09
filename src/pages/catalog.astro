@@ -5,29 +5,20 @@ import Filters from '../components/Filters.astro';
 import ArtifactRow from '../components/ArtifactRow.astro';
 
 const all = await getCollection('projects');
-const url = new URL(Astro.request.url);
-const domain = url.searchParams.get('domain');
-const status = url.searchParams.get('status');
-const year = url.searchParams.get('year');
-
-const filtered = all.filter(p=>{
-  const d = p.data;
-  return (!domain || d.domain.includes(domain as any)) &&
-         (!status || d.status===status) &&
-         (!year || String(d.year)===year);
-});
 ---
 <Base title="Catalog — Projects">
   <h1>Catalog</h1>
   <Filters />
-  <ol class="numlist">
-    {filtered.map(async (project) => {
+  <ol class="numlist" id="project-list">
+    {await Promise.all(all.map(async (project) => {
       const { data } = project;
       const { Content } = await project.render();
       return (
-        <li class="block" id={data.id}>
-          <h2><a href={`/catalog#${data.id}`}>{data.title}</a> <span class="muted">({data.year})</span></h2>
-          <div class="abstract"><Content /></div>
+        <li class="block" id={data.id} data-domain={data.domain.join(' ')} data-status={data.status} data-year={data.year}>
+          <h2><a href={`/projects/${data.id}`}>{data.title}</a> <span class="muted">({data.year})</span></h2>
+          <div class="abstract">
+            {data.summary ? <div set:html={data.summary} /> : <Content />}
+          </div>
           <ArtifactRow artifacts={data.artifacts} images={data.images} />
           <div class="badges">
             {data.domain.map(tag=> <span class="tag">{tag}</span>)}
@@ -35,6 +26,53 @@ const filtered = all.filter(p=>{
           </div>
         </li>
       );
-    })}
+    }))}
   </ol>
+
+  <script is:inline>
+    // Client-side filtering
+    (function(){
+      const list = document.getElementById('project-list');
+      if(!list) return;
+
+      function filter(){
+        const params = new URLSearchParams(window.location.search);
+        const domain = params.get('domain');
+        const status = params.get('status');
+        const year = params.get('year');
+
+        const items = list.querySelectorAll('.block');
+        items.forEach(function(item){
+          const itemDomains = (item.getAttribute('data-domain') || '').split(' ');
+          const itemStatus = item.getAttribute('data-status');
+          const itemYear = item.getAttribute('data-year');
+
+          const domainMatch = !domain || itemDomains.indexOf(domain) !== -1;
+          const statusMatch = !status || itemStatus === status;
+          const yearMatch = !year || itemYear === year;
+
+          if(domainMatch && statusMatch && yearMatch){
+            item.style.display = '';
+          } else {
+            item.style.display = 'none';
+          }
+        });
+      }
+
+      // Filter on load
+      filter();
+
+      // Re-filter on link clicks
+      document.addEventListener('click', function(e){
+        if(!e.target) return;
+        const link = e.target.closest('.filters a');
+        if(link && link.href){
+          setTimeout(filter, 10);
+        }
+      });
+
+      // Re-filter on browser back/forward
+      window.addEventListener('popstate', filter);
+    })();
+  </script>
 </Base>

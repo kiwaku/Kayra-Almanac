@@ -7,8 +7,8 @@ const grouped = parts.reduce((acc, p) => {
   return acc;
 }, {} as Record<string, typeof parts>);
 ---
-<Base title="Hardware — Homunculus">
-  <h1>Hardware: Homunculus</h1>
+<Base title="Hardware — Hephaestus">
+  <h1>Hardware: Hephaestus</h1>
   {Object.entries(grouped).map(async ([part, list]) => (
     <>
       <h2>{part.charAt(0).toUpperCase() + part.slice(1)}</h2>

@@ -5,6 +5,7 @@ year: 2025
 domain: [ "os", "security" ]
 status: "active"
 featured: true
+summary: "<strong>RAM-boot</strong> Debian (BIOS/UEFI); <code>toram</code> + initrd surgery. Goal: ultrafast trusted boot for volatile experiments; wipe-on-shutdown.<ul><li>Cold boot: <strong>11.2s</strong> (UEFI), 14.9s (BIOS)</li><li>ISO + PXE; persistent overlay optional</li><li>Wipe script nukes ephemeral mounts on poweroff</li></ul>"
 metrics: { loc: 12000, boot_sec: 11.2 }
 artifacts:
   diagram: "/artifacts/himorogi/arch.png"

@@ -11,10 +11,10 @@ export async function getStaticPaths() {
 }
 
 const { project } = Astro.props;
-const { data } = project;
+const { data, body } = project;
 const { Content } = await project.render();
 ---
-<Base title={`${data.title} — Project`}>
+<Base title={`${data.title} — Project`} rawMarkdown={body}>
   <article class="project-page">
     <h1>{data.title} <span class="muted">({data.year})</span></h1>
 

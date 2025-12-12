@@ -873,7 +873,7 @@
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
     checkbox.id = 'debug-gridlines-toggle';
-    checkbox.checked = true; // Start enabled
+    checkbox.checked = false; // Start disabled
     checkbox.style.cssText = `
       cursor: pointer;
       width: 16px;
@@ -913,14 +913,14 @@
       document.addEventListener('DOMContentLoaded', () => {
         positionInstrumentPanel();
         createDebugToggle(); // TEMP: Add debug toggle
-        createDebugGridlines(); // TEMP: Show gridlines on load
+        // createDebugGridlines(); // TEMP: Show gridlines on load (disabled by default)
       });
     } else {
       // Small delay to ensure layout is settled
       setTimeout(() => {
         positionInstrumentPanel();
         createDebugToggle(); // TEMP: Add debug toggle
-        createDebugGridlines(); // TEMP: Show gridlines on load
+        // createDebugGridlines(); // TEMP: Show gridlines on load (disabled by default)
       }, 100);
     }
 

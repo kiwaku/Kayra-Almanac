@@ -590,6 +590,26 @@ details.raw summary {
   color:var(--link);
 }
 
+details.raw pre {
+  margin-top:8px;
+  padding:12px;
+  background:#f5f5f5;
+  border:1px solid #ddd;
+  overflow-x:auto;
+  font-family:var(--mono);
+  font-size:12px;
+  line-height:1.4;
+  max-width:100%;
+  white-space:pre-wrap;
+  word-wrap:break-word;
+}
+
+details.raw code {
+  background:none;
+  padding:0;
+  white-space:pre-wrap;
+}
+
 /* Mobile */
 @media (max-width:768px) {
   body {

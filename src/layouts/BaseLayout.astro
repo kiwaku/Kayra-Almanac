@@ -3,7 +3,7 @@ import '../styles/theme.css';
 import LeftNav from '../components/LeftNav.astro';
 import ProofStrip from '../components/ProofStrip.astro';
 import InstrumentPanel from '../components/InstrumentPanel.astro';
-const { title = 'Kayra — Workshop Almanac' } = Astro.props;
+const { title = 'Kayra — Workshop Almanac', rawMarkdown } = Astro.props;
 ---
 <html lang="en">
   <head>
@@ -11,7 +11,8 @@ const { title = 'Kayra — Workshop Almanac' } = Astro.props;
     <title>{title}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="Workshop Almanac: security, OS builds, AI eval, hardware logs.">
-    <link rel="icon" href="/favicon.ico" />
+    <link rel="icon" href="/favicon-light.png" media="(prefers-color-scheme: light)" />
+    <link rel="icon" href="/favicon-dark.png" media="(prefers-color-scheme: dark)" />
     <meta property="og:type" content="website">
     <meta property="og:title" content="Kayra — Workshop Almanac">
     <meta property="og:description" content="Security, OS builds, AI eval, hardware logs.">
@@ -34,7 +35,10 @@ const { title = 'Kayra — Workshop Almanac' } = Astro.props;
       </aside>
       <section class="content">
         <slot />
-        <details class="raw"><summary>Raw Markdown</summary><!-- pre-embed at build if desired --></details>
+        <details class="raw">
+          <summary>Raw Markdown</summary>
+          {rawMarkdown && <pre><code>{rawMarkdown}</code></pre>}
+        </details>
       </section>
     </main>
 
@@ -264,7 +268,7 @@ const { title = 'Kayra — Workshop Almanac' } = Astro.props;
           // Update hint
           const hint = lb.querySelector('.zoom-hint');
           if(hint) {
-            hint.textContent = currentZoom === 1 ? '🔍 Click to zoom · ESC to close' : '🔍 ' + currentZoom + 'x zoom · Click for more';
+            hint.textContent = '🔍 Click to zoom · ESC to close';
           }
         });
       }

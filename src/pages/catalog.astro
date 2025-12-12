@@ -5,8 +5,18 @@ import Filters from '../components/Filters.astro';
 import ArtifactRow from '../components/ArtifactRow.astro';
 
 const all = await getCollection('projects');
+
+// Generate markdown list of all projects
+const rawMarkdown = `# Catalog — All Projects
+
+${all.map(p => `## ${p.data.title} (${p.data.year})
+
+Domain: ${p.data.domain.join(', ')}
+Status: ${p.data.status}
+${p.data.metrics?.loc ? `LOC: ${p.data.metrics.loc}` : ''}
+`).join('\n')}`;
 ---
-<Base title="Catalog — Projects">
+<Base title="Catalog — Projects" rawMarkdown={rawMarkdown}>
   <h1>Catalog</h1>
   <Filters />
   <ol class="numlist" id="project-list">

@@ -8,8 +8,19 @@ const logbook = (await getCollection('logbook'))
   .slice(0,5);
 
 const flagships = (await getCollection('projects')).filter(p => p.data.featured);
+
+// Generate markdown representation of featured content
+const rawMarkdown = `# Featured Projects
+
+${flagships.map(p => `## ${p.data.title} (${p.data.year})
+
+${p.data.summary ? p.data.summary.replace(/<[^>]*>/g, '').replace(/&mdash;/g, '—') : p.body.split('\n').slice(0, 3).join('\n')}
+
+Status: ${p.data.status}
+${p.data.metrics?.loc ? `LOC: ${p.data.metrics.loc}` : ''}
+`).join('\n---\n\n')}`;
 ---
-<Base title="Kayra — Workshop Almanac">
+<Base title="Kayra — Workshop Almanac" rawMarkdown={rawMarkdown}>
   <section class="home">
     <h1>Start Here</h1>
     <p>New here? <a href="/about">About →</a></p>

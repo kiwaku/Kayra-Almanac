@@ -7,25 +7,78 @@ images:
   - "/artifacts/hephaestus/wiring-detail.jpg"
 ---
 
-## Power Distribution
+## Wiring & Physical Topology
 
-- Dual EPS 8-pin to each CPU socket
-- 2× 8-pin PCIe to GPU (M40 requires both)
-- SATA power daisy-chain for peripheral fans
+### PCIe Slot Map
 
-## Cooling
+| Slot / Interface | Device | Electrical Lanes | Notes |
+|------------------|--------|:----------------:|-------|
+| PCIe x16_1 (CPU1) | NVIDIA Tesla P40 | x16 | Full bandwidth, no bottleneck |
+| PCIe x16_2 (CPU2) | Mellanox ConnectX-3 (HCA1) | x8 | Card is x8 native in x16 slot |
+| M.2 (CPU1) | Mellanox ConnectX-3 (HCA2) via M.2→x16 riser | x4 | M.2 lane limit |
+| PCIe x1 Slot A (PCH) | Intel I350-T4 via x1→x16 riser | x1 | Aggregate bandwidth limited |
+| PCIe x1 Slot B (PCH) | NVIDIA Quadro P400 via x1→x16 riser | x1 | Sufficient for display output |
 
-- Noctua NH-D9 DX-3647 on each CPU (passive mount)
-- 3× 120mm intake (DIN rail-mounted)
-- GPU passively cooled; case fans provide airflow
+> Note: Powered risers provide additional 12V rail capacity but do **not** increase PCIe lane count.
 
-## Cable Management
+---
 
-- All cables laced to 2020 extrusion with nylon ties
-- High-current runs (EPS, PCIe) bundled separately from data
-- Mellanox CX-3 mounted to rear rail with M3 standoffs
+<br />
+
+### Power Routing
+
+**CPU Power**
+- EPS 8-pin #1 → CPU1 socket  
+- EPS 8-pin #2 → CPU2 socket  
+
+**PCIe Device Power**
+- PCIe 8-pin (6+2) → Tesla P40 (dedicated cable)  
+- PCIe 6-pin #1 → M.2 → x16 riser (HCA2)  
+- PCIe 6-pin #2 → x1 → x16 riser (Intel I350-T4)  
+- PCIe 6-pin #3 → x1 → x16 riser (Quadro P400)  
+
+**Storage & Accessories**
+- SATA power → 2.5" SSD  
+- SATA power → fan hub  
+- Molex 4-pin → 12V → 24V step-up converter (input)  
+
+---
+
+<br />
+
+### Cooling Wiring
+
+**Active Cooling Requirements**
+- Tesla P40: Dedicated 24V blower (powered only via step-up converter)  
+- Mellanox ConnectX-3 HCAs: Direct airflow using 60–80mm fans mounted on heatsinks  
+- General chassis airflow: 120mm case fans  
+
+**24V Blower Wiring (Critical)**
+- Step-up converter input: Molex 12V (Yellow = +12V, Black = GND)  
+- Step-up converter output: 24V to blower (Red = +24V, Black = GND)  
+
+> The 24V blower must **never** be connected directly to the PSU or motherboard.
+
+---
+
+<br />
+
+### Network Cabling
+
+**Ethernet**
+- Intel I350-T4 port 1 → GS105E port 5 (lab uplink)  
+- GS105E port 1 ↔ port 2: Cat6 loopback  
+- GS105E port 3 ↔ port 4: Cat6 loopback  
+
+**InfiniBand Fabric**
+- QSFP+ DAC #1: HCA1 port 1 ↔ HCA2 port 1  
+- QSFP+ DAC #2: HCA1 port 2 ↔ HCA2 port 2  
+
+**Management / WAN**
+- USB Wi-Fi adapter → USB 3.0 port (external connectivity)
 
 ## Related Material
-- [Project Summary → /catalog#hephaestus](/catalog#hephaestus)
-- [Hardware BOM](/hardware#hephaestus-bom)
+- [Project Overview → /projects/hephaestus](/projects/hephaestus)
+- <a href="/artifacts/hephaestus/network_topology.png" class="lightbox">Network Topology (Diagram)</a>
+- <a href="/artifacts/hephaestus/pcie_power_map.png" class="lightbox">PCIe & Power Map (Diagram)</a>
 - [Debug Notes → /notebooks#hephaestus-debug](/notebooks#hephaestus-debug)

@@ -14,11 +14,15 @@ const rawMarkdown = `# Featured Projects
 
 ${flagships.map(p => `## ${p.data.title} (${p.data.year})
 
-${p.data.summary ? p.data.summary.replace(/<[^>]*>/g, '').replace(/&mdash;/g, '—') : p.body.split('\n').slice(0, 3).join('\n')}
+${p.data.summary ? p.data.summary.replace(/<[^>]*>/g, '').replace(/&mdash;/g, '—').replace(/&#x3C;/g, '<').replace(/&#x3E;/g, '>') : p.body}
 
 Status: ${p.data.status}
 ${p.data.metrics?.loc ? `LOC: ${p.data.metrics.loc}` : ''}
-`).join('\n---\n\n')}`;
+`).join('\n---\n\n')}
+
+# Latest Logbook
+
+${logbook.map(e => `- ${e.data.date} — ${e.data.title}${e.data.anomaly ? ' ⚠︎' : ''}`).join('\n')}`;
 ---
 <Base title="Kayra — Workshop Almanac" rawMarkdown={rawMarkdown}>
   <section class="home">
@@ -26,7 +30,7 @@ ${p.data.metrics?.loc ? `LOC: ${p.data.metrics.loc}` : ''}
     <p>New here? <a href="/about">About →</a></p>
     <p>Three flagship builds with receipts.</p>
 
-    <ol class="numlist">
+    <ol class="diamondlist">
       {await Promise.all(flagships.map(async (project) => {
         const { data } = project;
         const { Content } = await project.render();
@@ -36,7 +40,7 @@ ${p.data.metrics?.loc ? `LOC: ${p.data.metrics.loc}` : ''}
             <div class="abstract">
               {data.summary ? <div set:html={data.summary} /> : <Content />}
             </div>
-            <ArtifactRow artifacts={data.artifacts} images={data.images} />
+            <ArtifactRow artifacts={data.artifacts} images={data.images} projectId={data.id} />
             <div class="badges">
               {data.metrics?.loc && <span class="badge">LOC {data.metrics.loc}</span>}
               {data.metrics?.gpu_hours && <span class="badge">GPU {data.metrics.gpu_hours}h</span>}

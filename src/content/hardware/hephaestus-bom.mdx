@@ -8,16 +8,37 @@ images:
 
 ## Bill of Materials
 
-- **Motherboard:** Dual-socket LGA2011-3 (C612, narrow-ILM)
-- **CPU:** 2× Xeon E5-2650 v3 (10C/20T each, 40 threads total)
-- **RAM:** 8× 16GB DDR4 ECC RDIMM (128GB total)
-- **GPU:** Tesla M40 (24GB VRAM, passive cooling)
-- **Networking:** Mellanox ConnectX-3 (InfiniBand/Ethernet)
-- **Rails:** DIN + 2020 aluminum extrusion
-- **Mounts:** M3 standoffs, lacing bars, cable management clips
-- **PSU:** 1200W 80+ Platinum (dual 8-pin EPS, quad PCIe)
+| Component | Specification | Qty | Condition | Notes |
+|----------|---------------|:---:|:---------:|-------|
+| Mainboard | Dual-socket X99 / C612, LGA2011-3 (narrow-ILM) | 1 | Faulty (repaired) | Server/workstation class, required flashing |
+| CPU | Intel Xeon E5-2650 v3 (10C/20T) | 2 | Used | 40 threads total |
+| RAM | DDR4 ECC RDIMM, 16GB modules | 8 | Used | 128GB total |
+| Storage | 2.5" SATA SSD | 1 | Used | Host OS + VM storage |
+| Compute GPU | NVIDIA Tesla P40 (24GB, passive) | 1 | Faulty (repaired) | Requires forced airflow |
+| Display GPU | NVIDIA Quadro P400 (2GB) | 1 | Used | Host console output |
+| InfiniBand HCA | Mellanox ConnectX-3 MCX354A-FCBT/FCCT | 2 | Decommissioned (enterprise) | QSFP+ |
+| Ethernet NIC | Intel I350-T4 (quad 1GbE) | 1 | Used | Lab network interface |
+| PCIe Riser | M.2 → x16 powered riser | 2 | New | PCIe 6-pin power |
+| PCIe Riser | x1 → x16 powered riser | 2 | Used | PCIe 6-pin power |
+| PSU | 1200W 80+ Platinum (Type-4 cables) | 1 | Used | Dual EPS, quad PCIe |
+| Blower Fan | 24V high-static-pressure blower | 1 | New | Tesla P40 cooling |
+| Step-up Converter | 12V → 24V DC converter | 1 | New | Molex input |
+| Fan Hub | SATA-powered fan hub | 1 | New | CPU_FAN1 signal |
+| Case Fans | 120mm axial fans | — | Used | General airflow |
+| USB Wi-Fi | ALFA AWUS036NEH (802.11b/g/n) | 1 | Used | WAN / management |
+| Switch | NETGEAR GS105E v2 (5-port) | 1 | Used | VLAN-capable |
+| Cables | QSFP+ DAC cables | 2 | New | InfiniBand links |
+| Cables | Cat6 patch cables | — | New | Ethernet loopbacks |
+
+
+<br />
 
 ## Related Material
-- [Project Summary → /catalog#hephaestus](/catalog#hephaestus)
-- [Wiring & Power Layout](/hardware#hephaestus-wiring)
+- [Project Overview → /projects/hephaestus](/projects/hephaestus)
+- <a href="/artifacts/hephaestus/network_topology.png" class="lightbox">Network Topology (Diagram)</a>
+- <a href="/artifacts/hephaestus/pcie_power_map.png" class="lightbox">PCIe & Power Map (Diagram)</a>
 - [Debug Notes → /notebooks#hephaestus-debug](/notebooks#hephaestus-debug)
+
+<br />
+<br />
+<br />

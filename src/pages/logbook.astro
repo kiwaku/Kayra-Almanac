@@ -8,8 +8,20 @@ const byYear = entries.reduce((acc, e)=>{
   (acc[y] ||= []).push(e);
   return acc;
 }, {} as Record<string, typeof entries>);
+
+// Generate markdown
+const rawMarkdown = `# Logbook — All Entries
+
+${Object.entries(byYear).map(([year, list]) => `## ${year}
+
+${list.map(e => `### ${e.data.date} — ${e.data.title}
+
+Tags: ${e.data.tags.join(', ')}${e.data.project ? `
+Project: ${e.data.project}` : ''}${e.data.anomaly ? `
+⚠︎ Anomaly` : ''}
+`).join('\n')}`).join('\n')}`;
 ---
-<Base title="Logbook">
+<Base title="Logbook" rawMarkdown={rawMarkdown}>
   <h1>Logbook</h1>
   {Object.entries(byYear).map(([y, list])=> (
     <>
@@ -18,7 +30,7 @@ const byYear = entries.reduce((acc, e)=>{
         {list.map(e=> (
           <li id={e.slug}>
             {e.data.anomaly && <span style="color:#b33a3a;">⚠︎ </span>}
-            <a href={`/logbook#${e.slug}`}>{e.data.date} — {e.data.title}</a>
+            <a href={`/logbook/${e.slug}`}>{e.data.date} — {e.data.title}</a>
             <span class="meta">
               [{e.data.tags.join(', ')}]
               {e.data.project && ` · project: ${e.data.project}`}

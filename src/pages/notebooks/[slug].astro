@@ -1,0 +1,77 @@
+---
+import Base from '../../layouts/SectionLayout.astro';
+import { getCollection } from 'astro:content';
+
+export async function getStaticPaths() {
+  const notes = await getCollection('notebooks');
+  return notes.map((note) => ({
+    params: { slug: note.slug },
+    props: { note },
+  }));
+}
+
+const { note } = Astro.props;
+const { data, body } = note;
+const { Content } = await note.render();
+---
+<Base title={`${data.title} — Notebooks`} rawMarkdown={body}>
+  <article class="notebook-entry">
+    <h1>{data.title}</h1>
+    <div class="meta">
+      {data.date && <span class="date">{data.date}</span>}
+      {data.tags && data.tags.length > 0 && (
+        <span class="tags">
+          {data.tags.map(tag => <span class="tag">{tag}</span>)}
+        </span>
+      )}
+    </div>
+
+    <div class="content">
+      <Content />
+    </div>
+
+    <div class="nav-footer">
+      <a href="/notebooks">← Back to Notebooks</a>
+    </div>
+  </article>
+</Base>
+
+<style>
+  .notebook-entry {
+    max-width: 880px;
+  }
+
+  .meta {
+    margin-bottom: 2em;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 14px;
+    color: #666;
+  }
+
+  .meta .date {
+    font-weight: bold;
+    margin-right: 1em;
+  }
+
+  .meta .tags {
+    display: inline-flex;
+    gap: 4px;
+  }
+
+  .meta .tag {
+    background: #f0f0f0;
+    padding: 2px 6px;
+    border: 1px solid #ccc;
+    font-size: 11px;
+  }
+
+  .content {
+    line-height: 1.6;
+  }
+
+  .nav-footer {
+    margin-top: 3em;
+    padding-top: 1em;
+    border-top: 1px solid #ddd;
+  }
+</style>

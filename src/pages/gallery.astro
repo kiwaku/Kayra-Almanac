@@ -1,16 +1,107 @@
 ---
 import Base from '../layouts/SectionLayout.astro';
 import { getCollection } from 'astro:content';
+
 const projects = await getCollection('projects');
-const images = projects.flatMap(p => (p.data.images || []).map(src => ({src, project:p.data})));
+const logbook = await getCollection('logbook');
+
+const projectImages = projects.flatMap(p => (p.data.images || []).map(src => ({
+  src,
+  projectId: p.data.id,
+  projectTitle: p.data.title
+})));
+
+const logbookImages = logbook.flatMap(l => (l.data.images || []).map(src => ({
+  src,
+  projectId: l.data.project || null,
+  projectTitle: l.data.title,
+  date: l.data.date
+})));
+
+// Generate markdown
+const projectsWithImages = projects.filter(p => p.data.images && p.data.images.length > 0);
+const logbookWithImages = logbook.filter(l => l.data.images && l.data.images.length > 0);
+const rawMarkdown = `# Gallery — All Images
+
+## Project Images
+
+${projectsWithImages.map(p => `### ${p.data.title} (${p.data.year})
+
+${(p.data.images || []).map((img, i) => `${i + 1}. ${img}`).join('\n')}
+`).join('\n')}
+
+## Logbook Images
+
+${logbookWithImages.map(l => `### ${l.data.date} — ${l.data.title}
+
+${(l.data.images || []).map((img, i) => `${i + 1}. ${img}`).join('\n')}
+`).join('\n')}`;
 ---
-<Base title="Gallery">
+<Base title="Gallery" rawMarkdown={rawMarkdown}>
   <h1>Gallery</h1>
-  <div class="gallery">
-    {images.map(({src, project}) => (
-      <a class="thumb lightbox" href={src} data-project={project.id}>
-        <img src={src} alt={`${project.title}`} loading="lazy" />
+  <div id="gallery-filter-status" style="margin-bottom:12px; font-size:14px; font-family:var(--mono); display:none;"></div>
+
+  <h2>Project Images</h2>
+  <div class="gallery" id="project-gallery">
+    {projectImages.map(({src, projectId, projectTitle}) => (
+      <a class="thumb lightbox" href={src} data-project={projectId} data-project-title={projectTitle}>
+        <img src={src} alt={projectTitle} loading="lazy" />
       </a>
     ))}
   </div>
+
+  <h2 style="margin-top:2em;">Logbook Images</h2>
+  <div class="gallery" id="logbook-gallery">
+    {logbookImages.map(({src, projectId, projectTitle, date}) => (
+      <a class="thumb lightbox" href={src} data-project={projectId} data-project-title={projectTitle}>
+        <img src={src} alt={`${date} — ${projectTitle}`} loading="lazy" />
+      </a>
+    ))}
+  </div>
+
+  <script is:inline>
+    (function(){
+      const projectGrid = document.getElementById('project-gallery');
+      const logbookGrid = document.getElementById('logbook-gallery');
+      const status = document.getElementById('gallery-filter-status');
+      if(!projectGrid || !logbookGrid || !status) return;
+
+      function filterGallery(){
+        const params = new URLSearchParams(window.location.search);
+        const projectId = params.get('project');
+
+        const projectItems = projectGrid.querySelectorAll('.thumb');
+        const logbookItems = logbookGrid.querySelectorAll('.thumb');
+        const allItems = [...projectItems, ...logbookItems];
+
+        if(!projectId){
+          // Show all
+          allItems.forEach(item => item.style.display = '');
+          status.style.display = 'none';
+        } else {
+          // Filter by project
+          let projectTitle = '';
+          allItems.forEach(item => {
+            if(item.getAttribute('data-project') === projectId){
+              item.style.display = '';
+              if(!projectTitle) projectTitle = item.getAttribute('data-project-title');
+            } else {
+              item.style.display = 'none';
+            }
+          });
+
+          if(projectTitle){
+            status.innerHTML = 'Showing images from: ' + projectTitle + ' · <a href="/gallery">view all</a>';
+            status.style.display = 'block';
+          }
+        }
+      }
+
+      // Filter on load
+      filterGallery();
+
+      // Re-filter on navigation (if using client-side nav)
+      window.addEventListener('popstate', filterGallery);
+    })();
+  </script>
 </Base>

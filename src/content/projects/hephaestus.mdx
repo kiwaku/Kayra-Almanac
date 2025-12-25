@@ -6,13 +6,10 @@ domain: ["hardware", "os", "ai"]
 status: "active"
 featured: false
 summary: "<strong>Dual-socket Xeon</strong> lab machine for adversarial network research and trusted compute. Platform integrates GPU passthrough, 40 Gb/s InfiniBand fabric, and VM isolation for security simulations.<ul><li>Tesla M40 (24GB VRAM) with VFIO</li><li>InfiniBand loop via 2× ConnectX-3 HCAs</li><li>Proxmox VE with attacker/victim/sensor VMs</li></ul>"
-metrics:
-  loc: 0
 artifacts:
   diagram: "/artifacts/hephaestus/network_topology.png"
   diagram2: "/artifacts/hephaestus/pcie_power_map.png"
   readme: ""
-  postmortem: "/notebooks/hephaestus-debug"
 images:
   - "/artifacts/hephaestus/overview.webp"
   - "/artifacts/hephaestus/topdown.webp"
@@ -28,6 +25,8 @@ Hephaestus Lab is a self-contained experimental compute and networking environme
 The system is designed not as a general-purpose homelab, but as a focused research platform for adversarial simulations, GPU-based packet analysis, and studies of host/device boundaries. Its structure emphasizes compact, high-intensity capabilities—CUDA compute, point-to-point InfiniBand links, and isolated monitoring paths—rather than scale. Future extensions, such as integrating a BlueField card as a hidden co-processor, fit this same direction: examining how tightly coupled subsystems behave under stress, how communication channels can be exposed or obscured, and how constrained environments can support complex red-team and blue-team workflows.
 
 ---
+
+<br />
 
 ### At a glance
 
@@ -55,6 +54,8 @@ The system is designed not as a general-purpose homelab, but as a focused resear
 
 ---
 
+<br />
+
 ## **Diagram 1 — Multi-Plane Virtual Networking Topology**
 
   <div class="diagram-section">
@@ -80,6 +81,8 @@ This diagram illustrates the allocation of physical network interfaces and virtu
 - **VM Assignments:** Attacker/victim/sniffer VMs connect to both bridges; CUDA-box VM uses only `vmbr1`; IB-box VM combines `vmbr1` management with direct HCA2 passthrough
 
 ---
+
+<br />
 
 ## **Diagram 2 — Slot & Power Map (Throughput Mode)**
 
@@ -132,26 +135,159 @@ This hardware diagram details the physical layout, PCIe allocation, and power di
 - Dual IB links maintain redundancy but HCA2 bandwidth limited by ×4 interface
 ---
 
+<br />
+
 ### What this box is actually for
 
 The design of Hephaestus emphasizes flexibility in network and system topology, allowing configurations to be adjusted as needed rather than fixed.
 
-From the capabilities map: [Use mostly the whole thing from capabilities_map.txt, with emphasis on A-G for core/current setup (e.g., tap/mirroring, CUDA/compute, IB/RDMA, storage topologies, VFIO/IOMMU testing, replay/traffic engineering, security research). Summarize H-M as "stretch/optional/future" axes, like monitoring, topology variables, exotic add-ons (QAT, PCIe Screamer, BlueField-2), physical/power experiments, documentation/story, and BlueField insanity.]
+From the capabilities map: 
+### Capabilities map (what this machine can do)
+
+This map is split into two layers:
+- **Core (A–G):** capabilities supported by the current hardware topology.
+- **Stretch (H–M):** expansion axes and optional research directions (some require additional tooling/hardware).
+
+---
+
+#### Core capabilities (A–G)
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>A) Tap/Mirroring &amp; L2/L3 labs</strong> (I350-T4 + NETGEAR GS105E v2)</summary>
+
+- SPAN mirroring: mirror p1→p5 (sniffer) while traffic flows p1↔p2 (victim path)
+- Dual-path setups: p1↔p2 primary, p3↔p4 alternate; mirror either path
+- VLAN labs (802.1Q): tag/untag per port; trunk to router VM; test ACLs/NAT between VLANs
+- Rate-limit / QoS: police egress; validate markings and priority behavior in captures
+- Multicast behavior: IGMP snooping vs flood; detect abusive hosts
+- Loop/storm drills: create and mitigate broadcast storms; measure detector response
+- MTU fault injection: jumbo-frame mismatches; validate PMTUD/fragment handling
+- Cable diagnostics: GS105E cable test to validate physical-layer fault injections
+- Inline MITM (physical): insert switch in-path; SPAN both directions into a sensor VM
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>B) CUDA/Compute</strong> (Tesla P40 passthrough)</summary>
+
+- GPU-accelerated IDS/analytics: feature extraction, clustering, anomaly scoring on mirrored traffic
+- Isolated attack workloads: GPU cracking/fuzzing inside an attacker VM; observe DMA/IOMMU boundaries
+- Adversarial ML loops: generate and evaluate adversarial payloads with PCAP replay
+- vGPU exploration (Pascal-era): multi-tenant CUDA experiments (where supported)
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>C) InfiniBand/RDMA fabric</strong> (dual ConnectX-3 loop)</summary>
+
+- Self-contained 40 Gb/s fabric: private "datacenter backbone" via IPoIB
+- RDMA verbs testing: latency/throughput microbench, congestion, starvation scenarios
+- Protocol flips: validate stacks under IB/Eth/RoCE mode changes
+- RDMA storage: iSER/SRP targets; SAN-like behavior for VMs
+- GPU feed path (experimental): IB → CUDA data paths on compatible stacks
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>D) Storage topologies</strong> (SATA now; upgradeable)</summary>
+
+- SATA pool: host OS + snapshots + light VM I/O
+- PCAP spool tiers: SSD hot buffer → longer-term archive storage (as storage expands)
+- ZFS tuning: SLOG/recordsize/ARC stress for PCAP vs DB workloads
+- Self-encrypting disk drills: Opal/SED workflows for incident-response practice
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>E) VFIO/IOMMU/PCIe boundary testing</strong></summary>
+
+- GPU reset/isolation: stable detach/reattach; cold/warm reset edge cases
+- IOMMU grouping constraints: map isolation boundaries; validate what can/can't be cleanly separated
+- MMIO / device surface: translate "PCIe as attack surface" from theory to practice
+- Riser power integrity: observe stability under controlled load changes (with safe dummy loads)
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>F) Replay & traffic engineering</strong></summary>
+
+- Time-accurate replay: tcpreplay + analysis pipelines; IDS evasion via pacing/ordering
+- Clock skew studies: host vs VM timestamp drift; NIC/OS jitter quantification
+- Burst stress: jumbo vs tiny-burst packet trains to hit driver/buffer edge cases
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>G) Security research</strong> (red/blue loop)</summary>
+
+- End-to-end loop: Attacker → (I350 loops) → Victim; SPAN → Sensor; optional Defender (CUDA analytics)
+- Protocol abuse labs: LLMNR/NetBIOS/MDNS poisoning, DHCP starvation, ARP cache games
+- TLS visibility trade-offs: CPU relief vs inspection blind spots (software-first; accelerators later)
+- Payload mutation loops: GPU-assisted variation + sensor hardening against evolving variants
+</details>
+
+---
+
+#### Stretch axes (H–M)
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>H) Monitoring / observability</strong> (optional)</summary>
+
+- Out-of-band capture: dedicated sniffer VM; optional hardware TAP later
+- Host/guest tracing: perf/eBPF to link drops to scheduler/IRQ behavior
+- Synthetic fault injection: scripted loss/reorder/latency to validate detectors
+- Power/thermal telemetry: correlate rails/fan curves with stability and packet loss
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>I) Topology as a variable</strong> (roadmap)</summary>
+
+- PCIe fan-out: hang accelerators/storage behind a switch; move display to x1 to free lanes
+- Externalized PCIe: removable endpoints for "malicious device" simulations
+- SR-IOV (where supported): per-VM vNIC isolation and policy enforcement tests
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>J) Optional add-ons</strong> (expansion axes)</summary>
+
+- Intel QAT: TLS/IPsec offload at scale without pegging CPUs
+- DMA attacker cards: validate or break IOMMU isolation with controlled drills
+- SmartNIC / P4 NICs: on-NIC parsing/filtering; pre-disk reduction; line-rate surgery
+- Precision timing: PTP/GPSDO to correlate captures across VMs at sub-µs scale
+- PCIe SDR: RF ingress bridged into the same tap/replay workflows
+- HSM: hardware keys, signed capture chains, tamper-evident storage
+- FPGA NICs: custom parsers/flow meters for niche protocols
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>K) Physical & power experiments</strong> (optional)</summary>
+
+- Cooling regimes: quantify NIC/GPU error rates vs airflow/temperature
+- 12→24 V conversion behavior: EMI/noise effects on stability; cable routing best practices
+- Patch ergonomics: rapid rewiring to measure how topology changes affect detection
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>L) Why it matters</strong> (one-box datacenter)</summary>
+
+- Cloud-like attack/defend lifecycles without a rack
+- Treat NICs/GPUs as untrusted co-processors; build evidence for/against covert channels
+- Convert each capability into a reproducible lab module (portfolio-grade)
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>M) Future: BlueField-2</strong> (roadmap)</summary>
+
+- In-line middlebox: firewall/NAT/IDS on the NIC; host sees "cleaned" flows
+- Co-host trust boundary: ARM node with DMA access; supply-chain/firmware threat modeling
+- NVMe-oF / iSCSI on DPU: block targets presented without waking CPUs
+- P2P offload: DPU↔GPU or DPU↔IB experiments; CPU savings vs blind spots
+- "Hostile DPU" posture: SPAN + strict ACLs + firmware fingerprinting as a research artifact
+</details>
 
 This framework supports the development of standardized experimental modules over time, such as those focused on port mirroring and VLAN management, RDMA-based storage area networks, VFIO reliability assessments, and GPU-supported defensive analytics.
 
 ---
 
+<br />
+
 ### Build notes & logs
 
-This page provides a conceptual framework. Detailed assembly procedures are documented in:
+Detailed hardware specifications and debug logs:
 
-- **Hardware / wiring docs** – [Use full structure and details from Homunculus Lab PDF: Sections 0-10, covering scope, wiring, BIOS/UEFI checklist, identifying strong/weak M.2, Proxmox passthrough setup, IB/RDMA bring-up (including cabling, drivers, IPoIB test, perf expectations ~28-32 Gb/s), GS105E mirror quick start, storage/swap procedure, troubleshooting map (Q-codes, link flaps, etc.), safety notes, and what to record for build log.]
-- **Notebooks / debug logs** – Q-codes encountered, ib_write_bw numbers, thermal tuning, and post-mortems on anything that broke during bring-up
-
-Once those are published, I’ll link them here as:
-
-- `[Build Guide: Slot Map A](/hardware/hephaestus-slot-map-a)`  
-- `[Debug Log: Q-codes & RDMA bring-up](/notebooks/hephaestus-bringup-log)`
-
-For now, the two diagrams and this summary are enough to understand *why* Hephaestus exists and how the planes, slots, and power rails fit together.
+- [Hardware documentation](/hardware) – BOM, wiring diagrams, and power distribution
+- [Debug logs](/notebooks#hephaestus-debug) – Build issues, Q-codes, and troubleshooting

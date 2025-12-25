@@ -1,0 +1,119 @@
+---
+import Base from '../../layouts/SectionLayout.astro';
+import { getCollection } from 'astro:content';
+
+export async function getStaticPaths() {
+  const entries = await getCollection('logbook');
+  return entries.map((entry) => ({
+    params: { slug: entry.slug },
+    props: { entry },
+  }));
+}
+
+const { entry } = Astro.props;
+const { data, body } = entry;
+const { Content } = await entry.render();
+---
+<Base title={`${data.title} — Logbook`} rawMarkdown={body}>
+  <article class="logbook-entry">
+    <h1>{data.title}</h1>
+    <div class="meta">
+      <span class="date">{data.date}</span>
+      {data.tags && data.tags.length > 0 && (
+        <span class="tags">
+          {data.tags.map(tag => <span class="tag">{tag}</span>)}
+        </span>
+      )}
+      {data.project && <span class="project">Project: {data.project}</span>}
+      {data.anomaly && <span class="anomaly">⚠︎ Anomaly</span>}
+    </div>
+
+    <div class="content">
+      <Content />
+    </div>
+
+    {data.images && data.images.length > 0 && (
+      <div class="images-section">
+        <h2>Images</h2>
+        <div class="images-grid">
+          {data.images.map((img) => (
+            <a href={img} class="lightbox thumb">
+              <img src={img} alt={data.title} loading="lazy" />
+            </a>
+          ))}
+        </div>
+      </div>
+    )}
+
+    <div class="nav-footer">
+      <a href="/logbook">← Back to Logbook</a>
+    </div>
+  </article>
+</Base>
+
+<style>
+  .logbook-entry {
+    max-width: 880px;
+  }
+
+  .meta {
+    margin-bottom: 2em;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 14px;
+    color: #666;
+  }
+
+  .meta .date {
+    font-weight: bold;
+    margin-right: 1em;
+  }
+
+  .meta .tags {
+    display: inline-flex;
+    gap: 4px;
+    margin-right: 1em;
+  }
+
+  .meta .tag {
+    font-size: 11px;
+    margin-right: 6px;
+  }
+
+  .meta .project {
+    margin-right: 1em;
+  }
+
+  .meta .anomaly {
+    color: #b33a3a;
+    font-weight: bold;
+  }
+
+  .content {
+    line-height: 1.6;
+  }
+
+  .images-section {
+    margin-top: 2em;
+  }
+
+  .images-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+    margin-top: 1em;
+  }
+
+  .images-grid img {
+    width: 100%;
+    height: 150px;
+    object-fit: cover;
+    border: 1px solid #ccc;
+    cursor: pointer;
+  }
+
+  .nav-footer {
+    margin-top: 3em;
+    padding-top: 1em;
+    border-top: 1px solid #ddd;
+  }
+</style>

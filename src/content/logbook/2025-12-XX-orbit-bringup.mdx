@@ -1,0 +1,82 @@
+---
+title: "ORBIT-RXTX: Stage 1 Bring-up, NanoVNA Results, First Passes"
+date: "2026-01-XX"
+tags: ["rf", "hardware", "orbit-rxtx", "measurements"]
+project: orbit-rxtx
+images: []
+anomaly: false
+---
+
+Stage 1 RX system bring-up: NanoVNA measurements, antenna tuning, and first satellite passes.
+# 2025-12-25 — ORBIT-RXTX: Stage 1 Bring-up, NanoVNA Results, First Passes
+[hardware, rf, measurement, nanovna, rtl-sdr, antrunner] · project: orbit-rxtx
+
+THIS IS A FUTURE DRAFT
+
+This log is the chronological bring-up record: assembly, measurements, first reception attempts, and fixes.
+
+---
+
+<br />
+
+## 1) Purchases / arrivals
+- [ ] Main feedline (5D-FB / LMR-240) length: ___m
+- [ ] RG316 pigtails: PL-259→SMA-F, N-M→SMA-F
+- [ ] Adapters kept: (list final adapter chain)
+
+---
+
+<br />
+
+## 2) NanoVNA calibration setup
+Calibration plane: at the end of the pigtail / at the end of the feedline (choose and record).
+- CAL kit: open/short/load
+- Sweep ranges:
+  - VHF: 130–170 MHz
+  - UHF: 400–470 MHz
+
+---
+
+<br />
+
+## 3) Measurements (S11)
+### Antenna: U7V4 (UHF)
+- Sweep: 400–470 MHz
+- Best S11 frequency: ___ MHz
+- SWR at 435 MHz: ___
+- Notes: (any unexpected resonance, adapter sensitivity, etc.)
+
+### Antenna: QFH144 (VHF)
+- Sweep: 130–170 MHz
+- Best S11 frequency: ___ MHz
+- SWR at 145.9 MHz: ___
+- Notes:
+
+Attach screenshots / export Touchstone files if you have them.
+
+---
+
+<br />
+
+## 4) First reception attempts
+Target satellites tested:
+- ___ (NOAA/Meteor/ISS/etc.)
+Tools:
+- tracking software: ___
+- SDR stack: ___
+
+Results:
+- Waterfall screenshot(s):
+- Did Doppler correction help? yes/no + evidence
+- Any antenna comparison notes:
+
+---
+
+<br />
+
+## 5) Issues & fixes
+- Issue:
+  - symptom:
+  - root cause:
+  - fix:
+  - verification:

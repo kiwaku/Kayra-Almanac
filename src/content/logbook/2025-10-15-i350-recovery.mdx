@@ -1,0 +1,48 @@
+---
+title: "Intel i350-T4 Soft-Brick & NVM-Level Recovery Plan"
+date: "2025-10-15"
+tags: ["network", "hephaestus", "i350", "firmware", "spi"]
+project: hephaestus
+images:
+  - "/artifacts/hephaestus/i350-initial-load.webp"
+anomaly: false
+---
+
+"Error -5," BootUtil freezes, and the "Dead NVM" diagnosis.
+
+### The Incident
+
+The Quad-Port **Intel i350-T4** (Model: NB-INT-I350T4-S2) was working initially. After some cable management (unplugging/replugging copper) and reboots, the card went dark.
+
+**Current State:**
+
+* **Physical:** No link LEDs on the bracket.
+* **PCIe:** `lspci` lists the controller (Functions 00-03), so the silicon is alive.
+* **OS Failure:** No `enp...` devices created. `ip link` cannot find devices.
+
+<img src="/artifacts/hephaestus/i350-initial-load.webp" alt="i350 successful loading (initial stage one)" loading="lazy" />
+
+### Debug Logs (The Errors)
+
+We attempted to force the card awake, but the logs confirm the internal NVM (SPI flash) is unresponsive:
+
+1. **Kernel Probe:** Driver reported **error -5** (I/O/Handshake failure) during initialization.
+2. **Linux Tool (`bootutil64e`):** "Could not connect to the NAL driver (c86a8009)."
+3. **UEFI Tool (`BOOTUTIL64E.EFI`):** System **hard freeze** immediately upon execution. This is a classic symptom of the tool hanging while waiting for the SPI flash to respond.
+
+### Diagnosis: Soft-Bricked NVM
+
+The evidence (Error -5 + BootUtil Freeze + No LEDs) points to a corrupted EEPROM/NVM. The controller enumerates but cannot load its firmware blob.
+
+### The "Nuclear" Fix (Path C)
+
+Software recovery is impossible because the card freezes the tools. I am proceeding with **Path C: Hardware Reflash**.
+
+1. **Hardware:** CH341A + SOIC8 Clip (3.3V).
+2. **Target:** The 8-pin flash chip on the NIC (likely Winbond 25Qxx).
+3. **Process:**
+   * Dump current garbage data (`flashrom -r i350_backup.bin`).
+   * Source a known-good NVM image (or "golden image" from a second working card).
+   * Flash external image (`flashrom -w i350_fixed.bin`).
+
+**Next Step:** I need to locate a clean `.bin` dump for the *NB-INT-I350T4-S2* specifically before attaching the clip.

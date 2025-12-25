@@ -1,0 +1,52 @@
+---
+title: "BIOS Reflash (ZX-DU99D4 V1.12) via CH341A"
+date: "2025-10-05"
+tags: ["hardware", "hephaestus", "du99d4", "firmware", "spi"]
+project: hephaestus
+images:
+  - "/artifacts/hephaestus/ch341a-clamp.webp"
+  - "/artifacts/hephaestus/chip-pin-tape.webp"
+  - "/artifacts/hephaestus/ch341a-laptop-2.webp"
+anomaly: false
+---
+
+Fighting back-feed voltage, the Pin-8 isolation hack, and forcing a write.
+
+<br />
+
+### The Setup
+
+* **Target Chip:** Winbond 25Q128JVSQ (3.3V, 128 Mbit, SOP8).
+* **Tool:** CH341A (Black PCB) configured as **25-series SPI**.
+* **Prep:** PSU switch OFF, power cord removed. ATX 24-pin and EPS 8-pins physically unplugged to prevent 3.3V rail back-feed.
+
+<img src="/artifacts/hephaestus/ch341a-clamp.webp" alt="Attaching CH341A wires to SPI chip" loading="lazy" />
+
+### The "Phantom Voltage" Problem
+
+Even with the PSU off, the CH341A was struggling. The motherboard standby rail was "fighting" the programmer, leading to consistent errors:
+
+* **Symptom:** Chip detection failed ("No Device Found") or identified as wrong capacity (25Q64).
+* **Symptom:** Inconsistent read dumps (`backup1.bin` vs `backup2.bin` mismatch at address `0x3F0000+`).
+
+### The Fix: Pin 8 Isolation
+
+The board's auxiliary circuits were pulling power from the clip.
+
+**The Hack:** I applied **Kapton tape** to cover **Pin 8 (VCC)** on the motherboard-side header. This forced the chip to be powered *solely* by the CH341A clip, isolating it from the board's hungry power rail.
+
+<img src="/artifacts/hephaestus/chip-pin-tape.webp" alt="Adjusting chip pins, covering pin with Kapton tape" loading="lazy" />
+
+### The Flash Procedure
+
+Once isolated, the workflow stabilized:
+
+1. **READ #1 & #2:** Saved two backups. Compared hashes—**Match**.
+2. **ERASE:** Wiped the chip.
+3. **WRITE:** Flashed specific image `ZX-DU99D4 V1.12` (Exact PCB revision match is critical).
+4. **VERIFY:** Passed.
+
+**Post-Flash:**
+removed clip, cleared CMOS (battery pull for 3 mins), and reconnected power.
+
+<img src="/artifacts/hephaestus/ch341a-laptop-2.webp" alt="Connecting CH341A module to laptop - final connection" loading="lazy" />

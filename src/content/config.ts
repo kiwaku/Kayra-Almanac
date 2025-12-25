@@ -6,7 +6,7 @@ const project = defineCollection({
     title: z.string(),
     id: z.string(),                        // slug-like, unique
     year: z.number(),
-    domain: z.array(z.enum(['ai','security','os','hardware','ux','viz'])),
+    domain: z.array(z.enum(['ai','security','os','hardware','rf','ux','viz'])),
     status: z.enum(['active','archived','paused']),
     featured: z.boolean().default(false),  // NEW: for homepage
     summary: z.string().optional(),        // Short summary for catalog/index

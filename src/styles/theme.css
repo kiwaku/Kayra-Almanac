@@ -335,6 +335,7 @@ main, .shell, .content, .left, header, footer {
 .abstract .diagram-section img {
   width: 100%;
   height: auto;
+  max-height: none;
   border: 1px solid #ccc;
   cursor: zoom-in;
   image-rendering: -webkit-optimize-contrast;
@@ -486,7 +487,7 @@ body.evidence li:not(:has(a)) {
 #lightbox .lightbox-container {
   max-width:92vw;
   max-height:92vh;
-  overflow:auto;
+  overflow:hidden;
   display:flex;
   align-items:center;
   justify-content:center;
@@ -559,6 +560,28 @@ body.evidence li:not(:has(a)) {
   filter: drop-shadow(1px 1px 0px rgba(0,0,0,0.08));
 }
 
+/* Diamond markers for featured page */
+.diamondlist {
+  list-style:none;
+  padding:0;
+}
+
+.diamondlist .block {
+  position:relative;
+  padding-left:32px;
+  margin:10px 0;
+}
+
+.diamondlist .block::before {
+  content: "◆";
+  position:absolute;
+  left:0;
+  top:0;
+  line-height:1;
+  font-size:16px;
+  color:#111;
+}
+
 /* Filters */
 .filters {
   margin-bottom:12px;
@@ -576,6 +599,10 @@ body.evidence li:not(:has(a)) {
 
 .filters a {
   margin-right:8px;
+}
+
+.filters a.active {
+  font-weight:bold;
 }
 
 /* Raw toggle details */
@@ -610,6 +637,55 @@ details.raw code {
   white-space:pre-wrap;
 }
 
+/* Content images - constrain size for readability */
+/* NOTE: Diagrams in .diagram-section retain width:100% (see line 335) */
+/* To revert: delete this entire block (lines 639-649) */
+.content img {
+  max-width: 100%;
+  max-height: 60vh;
+  height: auto;
+  width: auto;
+  display: block;
+  margin: 1em auto;
+  border: 1px solid #ccc;
+}
+
+/* Math blocks - allow natural wrapping */
+.abstract .katex-display {
+  margin: 1em 0;
+  max-width: 100%;
+  overflow: visible;
+}
+
+.abstract .katex-display > .katex {
+  white-space: normal;
+  word-wrap: break-word;
+}
+
+/* Code blocks - prevent overflow */
+.abstract pre {
+  max-width: 100%;
+  overflow-x: auto;
+  background: #fff !important;
+  border: 1px solid #ddd;
+  padding: 12px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.abstract code {
+  background: #f5f5f5;
+  padding: 2px 4px;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.abstract pre code {
+  background: none;
+  padding: 0;
+}
+
 /* Mobile */
 @media (max-width:768px) {
   body {
@@ -639,4 +715,37 @@ details.raw code {
   .numlist .block::before {
     font-size:16px;
   }
+}
+
+/* Collapsible capabilities */
+details.capability {
+  margin: 0.6rem 0;
+}
+
+details.capability summary {
+  cursor: pointer;
+  padding: 0.6rem 0.8rem;
+  background: rgba(0,0,0,0.04);
+  border-radius: 8px;
+  list-style: none;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+details.capability summary:hover {
+  background: rgba(0,0,0,0.07);
+}
+
+details.capability summary::-webkit-details-marker {
+  display: none;
+}
+
+details.capability .chevron {
+  display: inline-block;
+  margin-right: 0.5rem;
+  transition: transform 0.15s ease;
+}
+
+details.capability[open] .chevron {
+  transform: rotate(90deg);
 }

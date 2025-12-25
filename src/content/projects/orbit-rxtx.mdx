@@ -1,0 +1,138 @@
+---
+title: ORBIT-RXTX
+id: orbit-rxtx
+year: 2025
+domain: ["hardware", "rf"]
+status: "active"
+featured: false
+summary: "Modular LEO ground station for RX instrumentation and full-duplex satellite communication.<ul><li>UHF/VHF downlink with SDR processing</li><li>Custom LNA and band-pass filtering</li><li>TBD</li></ul>"
+metrics: { }
+artifacts:
+  diagram: ""
+images: []
+related: []
+---
+
+Modular LEO ground station for RX instrumentation and full-duplex satellite communication.
+
+- UHF/VHF downlink with SDR processing
+- Custom LNA and band-pass filtering
+- TBD
+
+---
+
+<br />
+<br />
+
+# LEO Amateur Satellite Ground Station
+
+---
+
+
+> Modular LEO ground station for RX instrumentation and full-duplex satellite communication.  
+> A staged build prioritizing RF discipline, measurable performance, and upgrade paths over novelty QSOs.
+
+## Status
+**Stage 1 (RX & Instrumentation): In progress**  
+**Stage 2 (Two-way LEO / full-duplex): Planned (license + TX chain)**
+
+---
+<br />
+
+## Project Overview
+ORBIT-RXTX is a Japan-based LEO satellite ground station built as a *system*, not a stunt: tracking + RF plumbing + measurement + repeatable outputs. The build is staged so each subsystem is validated before investing in the next.
+
+---
+<br />
+
+## Final System Architecture
+
+### Antenna Suite
+- **70 cm (primary downlink / high gain):** **U7V4 Cross Yagi** (directional, circular polarization)  
+  *Purpose:* maximize SNR on UHF downlinks with tracking.
+- **2 m (RX now / future uplink support):** **Nagara QFH144** (omnidirectional, circular polarization)  
+  *Purpose:* reliable VHF reception without polarization mismatch; later supports uplink once TX exists.
+
+### Tracking & Pointing
+- **AntRunner Az/El rotator**  
+  *Purpose:* exploit Yagi gain during passes; integrates with satellite tracking software.
+
+### Receive Chain (Stage 1 Core)
+- **RTL-SDR v2**  
+  *Purpose:* downlink reception, Doppler-aware tuning, spectrum/waterfall capture, and pass logging.
+- **NanoVNA (H4-class)**  
+  *Purpose:* verify antennas, adapters, and feedline (SWR/return loss) before any TX-stage work.
+
+### RF Infrastructure Principles
+- **One long low-loss main feedline** (e.g., 5D-FB / LMR-240 equivalent, ~10 m typical home run)
+- **Short RG316 pigtails at the antenna end**
+- **Stage 1 switching:** manual plug/unplug between antenna pigtails (min cost, min loss)
+
+---
+<br />
+
+## Key Design Decisions (Short)
+### Why not DIY “cross-yagi from two separate yagis”?
+A true cross-Yagi needs a correct, single phase center and controlled geometry. Converting two separate booms into a real cross-yagi usually requires dismantling/rebuilding (element transplant / drilling) and introduces phase/spacing errors and non-reproducible results.  
+**Decision:** use proven commercial circularly polarized antennas.
+
+### Why Stage 1 is RX-first
+RX-first produces publishable artifacts immediately (waterfalls, Doppler curves, decoded telemetry, tracking validation) while deferring the most expensive commitments (TX radio + TX-safe RF chain + licensing).
+
+---
+<br />
+
+## Project Stages
+
+### Stage 1 — RX & Instrumentation (IN PROGRESS)
+**Goal:** operational receive system with measured RF path.  
+**Outputs (showable):**
+- Doppler-corrected waterfall plots
+- pass logs (time/frequency)
+- tracking verification (Az/El + signal peak)
+- decoded telemetry/data when available
+
+### Stage 2 — Two-way LEO (PLANNED)
+**Goal:** full-duplex two-way operation (linear transponder capable).  
+**Requirements:**
+- **Japan license target:** 第三級アマチュア無線技士（養成課程ルート予定）
+- TX-capable VHF/UHF rig (two-radio architecture acceptable: SDR RX + separate TX)
+- TX-safe plumbing (filters/duplexing strategy, RX protection, measurement discipline)
+
+---
+<br />
+
+## Bill of Materials (BOM)
+
+| Category | Item | Requirement / Notes | Status |
+|---|---|---|---|
+| Antenna (UHF) | U7V4 Cross Yagi | 430–440 MHz, CP, SO-239 | Selected |
+| Antenna (VHF) | Nagara QFH144 | 144 MHz, CP omni, N-type | Selected |
+| Tracking | AntRunner | Az/El rotator | Selected |
+| RX | RTL-SDR v2 | UHF/VHF RX + logging | Owned |
+| Measurement | NanoVNA (H4-class) | antenna/feedline verification | Selected |
+| Main feedline | 5D-FB / LMR-240 equiv | ~10 m, 50Ω, SMA-SMA if possible | Pending |
+| Pigtail A | PL-259 → SMA-F (RG316) | for SO-239 antenna | Pending |
+| Pigtail B | N-M → SMA-F (RG316) | for QFH144 | Pending |
+| Bench leads | SMA-SMA (RG316) | NanoVNA + adapters | Pending |
+| Adapters | SMA barrels, etc. | only what’s needed, minimize stack | Pending |
+
+---
+<br />
+
+## Logs & Build Diary
+Long-form build notes, experiments, mistakes, and tuning sessions are tracked separately here:
+
+- **Build Logs:** /logs/orbit-rxtx/  
+- **RF Measurements (NanoVNA):** /logs/orbit-rxtx/measurements/  
+- **Cabling & Adapter Decisions:** /logs/orbit-rxtx/rf-plumbing/  
+- **Stage 2 Planning (TX chain / license):** /logs/orbit-rxtx/stage-2/
+
+> The project page stays clean and current; logs preserve the messy reality.
+
+---
+
+## Philosophy
+This isn’t a novelty “talk to space” exercise. It’s a disciplined RF system where Doppler, polarization, gain, noise, and loss are treated as first-class engineering constraints.
+
+**The payload is predictable. The system is the artifact.**

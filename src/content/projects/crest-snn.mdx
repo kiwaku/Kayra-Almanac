@@ -1,24 +1,965 @@
 ---
 title: CREST-SNN
 id: crest-snn
-year: 2024
+year: 2025
 domain: [ "ai", "hardware" ]
-status: "paused"
+status: "archived"
 featured: true
-summary: "Spiking neural network accelerator on FPGA. Event-driven compute for edge inference.<ul><li>Custom RISC-V core + spike encoder</li><li>8.5k lines of Verilog/SystemVerilog</li><li>Paused pending silicon tape-out budget</li><li>Postmortem covers thermal and timing closure issues</li></ul>"
+summary: "Hybrid learning strategies for spike-based object detection on event cameras. Independent PyTorch implementation of CREST framework with ANN-to-SNN weight transfer.<ul><li>SpikingYOLO detector trained on DSEC dataset</li><li>Custom diagnostic framework for SNN debugging</li><li>8.5k lines of Python (PyTorch + snnTorch)</li></ul>"
 metrics: { loc: 8500 }
 artifacts:
-  diagram: "/artifacts/crest-snn/architecture.png"
-  postmortem: "/notebooks/crest_postmortem"
+  diagram: "/artifacts/crest-snn/full_pipeline.png"
+  diagram2: "/artifacts/crest-snn/plot_ANN_SNN.png"
 images:
-  - "/artifacts/crest-snn/board.jpg"
-  - "/artifacts/crest-snn/trace.jpg"
+  - "/artifacts/crest-snn/figure3.2.png"
+  - "/artifacts/crest-snn/figure3.3.png"
+  - "/artifacts/crest-snn/3.4~3.6.png"
+  - "/artifacts/crest-snn/figure3.7.png"
+  - "/artifacts/crest-snn/figure3.9.png"
+  - "/artifacts/crest-snn/figure3.10.png"
+  - "/artifacts/crest-snn/table3.3.png"
+  - "/artifacts/crest-snn/table3.4.png"
+  - "/artifacts/crest-snn/table3.5.png"
+  - "/artifacts/crest-snn/table3.7.png"
 related: [ "himorogi" ]
 ---
 
-Spiking neural network accelerator on FPGA. Event-driven compute for edge inference.
+Hybrid learning strategies for spike-based object detection on event cameras. Independent PyTorch implementation of CREST framework with ANN-to-SNN weight transfer.
 
-- Custom RISC-V core + spike encoder
-- 8.5k lines of Verilog/SystemVerilog
-- Paused pending silicon tape-out budget
-- Postmortem covers thermal and timing closure issues
+- SpikingYOLO detector trained on DSEC dataset
+- Custom diagnostic framework for SNN debugging
+- 8.5k lines of Python (PyTorch + snnTorch)
+
+
+---
+
+<br />
+
+# Hybrid Learning Strategies for Spike-Based Object Detection on the DSEC Dataset
+
+## 1. Project Header
+
+**Title:** Hybrid Learning Strategies for Spike-Based Object Detection on the DSEC Dataset  
+**Summary:** This project independently implemented, debugged, and extended the CREST spiking object detector, tackling training instability on event-based data by introducing a hybrid ANN-pretraining and weight-transfer strategy.  
+**Context:** Final Year Project, University of Manchester School of Computer Science | Dataset: DSEC-Detection | Supervisor: Dr. Oliver Rhodes  
+**Links:**  
+- [GitHub Repository](https://github.com/shen-aoyu/CREST) (Independent implementation)  
+- Project Report (PDF)
+
+---
+
+<br />
+
+## 2. Problem Statement
+
+CREST (Conjointly-trained Spike-driven Framework) represents a promising step toward fully spike-driven object detection, offering native compatibility with event cameras and potential for low-power deployment on neuromorphic hardware. However, training deep Spiking Neural Networks (SNNs) for complex regression tasks like bounding box detection remains notoriously unstable, especially on challenging, sparse event-based datasets like DSEC-Detection.
+
+Initial attempts to replicate CREST revealed critical failure modes: vanishing gradients, spatial activation instability, and anchor mismatches that prevented functional learning. These issues were particularly pronounced when adapting the framework from its original Gen1 dataset to the more versatile DSEC benchmark.
+
+---
+
+<br />
+
+## 3. Research Questions / Aims
+
+- **Training Dynamics Investigation:** Can a deep SNN detector be trained effectively from scratch on DSEC using surrogate gradients, or do fundamental optimization barriers exist?
+- **Diagnostic Framework Development:** What specific bottlenecks cause training failure, and how can custom tools make these visible?
+- **Hybrid Strategy Validation:** Does ANN pretraining with weight transfer provide a more stable initialization for SNN fine-tuning?
+- **Practical Implementation:** Can a modular, debuggable codebase deliver reproducible analysis of SNN training behavior, even with limited computational resources?
+
+---
+
+<br />
+
+## 4. High-Level System Overview
+
+The implemented pipeline processes asynchronous event streams through a hybrid training strategy with two parallel paths:
+
+
+## **Diagram 1 — Overall architecture of the implemented event-based detection pipeline**
+
+  <div class="diagram-section">
+  <a href="/artifacts/crest-snn/full_pipeline.png" class="lightbox">
+  <img src="/artifacts/crest-snn/full_pipeline.png" alt="CREST Pipeline" />
+  </a>
+  </div>
+
+**Key Components:**
+1. **Event Preprocessing:** Raw events → 5-bin voxel grid representation
+2. **MESTOR Module:** Multi-scale spatiotemporal feature extraction
+3. **Dual Training Paths:**
+   - Phase 1: Direct SNN training (SpikingYOLO with LIF neurons)
+   - Phase 2: ANN pretraining (YOLOANN) → Weight transfer → SNN fine-tuning
+4. **Diagnostic Integration:** Custom tools monitoring gradient flow, confidence distributions, and spatial activations
+
+---
+
+<br />
+
+## 5. Methodology
+
+### Data Handling: Event → Voxel Transformation
+
+Raw asynchronous events from DSEC's `zurich_city_18_a` sequence were aggregated into fixed time windows (±10ms) and encoded into 5-bin voxel grids. This representation balances temporal resolution with computational efficiency:
+
+$$
+\mathcal{B}(x,y,n) = \sum_{i=1}^{M} e_i(x_i,y_i,t_i) \quad \text{where } (n-1)\Delta t < t_i < n\Delta t
+$$
+
+These voxel bins were processed by MESTOR to extract multi-scale features. The spatial scale component accumulates events across all bins to enhance spatial structure:
+
+$$
+I(D^{S})(x,y) = \sum_{n=1}^{N} \mathcal{B}(x,y,n)
+$$
+
+This spatial accumulation formed one of three feature channels, alongside temporal detail and spatiotemporal continuity scales.
+Figure 3.2: Phase-1 input pipeline sanity checks showing raw events and voxel grid statistics
+<img src="/artifacts/crest-snn/figure3.2.png" alt="Phase-1 input pipeline sanity checks showing raw events and voxel grid statistics" loading="lazy" />
+Figure 3.3: Event tensor averaging stages and MESTOR feature map
+<img src="/artifacts/crest-snn/figure3.3.png" alt="Event tensor averaging stages and MESTOR feature map" loading="lazy" />
+
+<br />
+
+### Phase 1: SNN-Only Training Exploration
+
+The SpikingYOLO network was trained end-to-end using surrogate gradient backpropagation. The surrogate gradient function approximated the non-differentiable spike threshold:
+
+$$
+\frac{dH(x)}{dx} \approx g(x) = \frac{1}{\gamma} \max\left\{0, 1 - \frac{|x|}{\gamma}\right\}
+$$
+
+where $H(x)$ is the Heaviside step function and $\gamma$ controls gradient width. This approximation enabled gradient flow through discrete spike events during backpropagation through time (BPTT).
+
+### Diagnostic Development
+
+Parallel to training, I built a suite of PyTorch-based diagnostic tools:
+- Gradient hooks for layer-wise ℓ₂-norm tracking
+- Confidence heatmap visualization
+- Anchor-to-ground-truth IoU analysis
+- Activation distribution plotting
+
+**Neuron Model Complexity:** The original CREST framework used Few-Spike Neurons (FSNs) with complex membrane dynamics:
+
+$$
+\hat{u}(x,y,t) = \mathcal{B}_{t} * W + u(x,y,t)
+$$
+
+where $*$ denotes convolution and $u(x,y,t)$ is the membrane potential. While biologically plausible, this complexity contributed to gradient instability in our initial replication attempts, motivating our switch to standard LIF neurons for improved debuggability.
+
+<br />
+
+### Phase 2: ANN Pretraining Pivot
+
+After Phase 1 revealed fundamental training instability, I implemented:
+1. **YOLOANN:** Architecturally identical to SpikingYOLO but with ReLU activations
+2. **ANN Pretraining:** Standard supervised training on voxelized data
+3. **Weight Transfer:** Direct copying of convolutional weights from ANN to SNN
+4. **SNN Fine-tuning:** Continued training with spike-specific ConjointLoss
+
+**Simplified Training Strategy:** The original CREST training used a Conjoint Learning Rule with discretization:
+
+$$
+x_{p}^{l} = \text{round}\left(\frac{x_{q}^{l}}{X_{min}^{l}}\right) \times X_{min}^{l}
+$$
+
+This discretization mimicked spike counts but added training complexity. Our implementation used direct weight transfer and fine-tuning, trading biological fidelity for practical stability. This allowed us to establish baseline performance while maintaining debuggability.
+
+<br />
+
+## **Diagram 2 — Model diagram comparing YOLOANN and SpikingYOLO architectures**
+
+  <div class="diagram-section">
+  <a href="/artifacts/crest-snn/plot_ANN_SNN.png" class="lightbox">
+  <img src="/artifacts/crest-snn/plot_ANN_SNN.png" alt="ANN to SNN" />
+  </a>
+  </div>
+  
+<img src="/artifacts/crest-snn/table3.4.png" alt="Layer-wise weight transfer mapping" loading="lazy" />
+
+---
+
+<br />
+
+## 6. Diagnostics & Failure Analysis
+
+Custom diagnostics revealed critical issues invisible through loss metrics alone:
+
+**Phase 1 SNN Failure Evidence:**
+[Figure 3.4: Untrained SNN confidence map showing random noise]
+[Figure 3.5: Confidence map after forward pass without training]
+[Figure 3.6: Confidence map after 5 epochs showing weak blob-like activations]
+
+<img src="/artifacts/crest-snn/3.4~3.6.png" alt="Confidence Maps" loading="lazy" />
+
+[Figure 3.7: Phase 1 training loss trajectory showing misleading convergence]
+
+<img src="/artifacts/crest-snn/figure3.7.png" alt="Phase 1 training loss" loading="lazy" />
+
+**Gradient Analysis:**
+Gradient hooks revealed zero gradients in detection layers beyond the first convolutional block, explaining training stagnation. This was exacerbated by surrogate gradient decay over time steps.
+
+**Spatial Bias Discovery in ANN:**
+
+[Figure 3.9: Vertical activation distribution quantifying row-wise bias]
+<img src="/artifacts/crest-snn/figure3.9.png" alt="Row bias" loading="lazy" />
+
+**Architectural Issues:**
+- **Anchor Mismatch:** Default COCO anchors had IoU < 0.22 with DSEC boxes
+- **Double Sigmoid:** Redundant activation functions clamped outputs near 0.5
+- **Temporal Misalignment:** Early prototypes showed 15% spatial misalignment across time bins
+
+**Diagnostic Summary:**
+[Table 3.7: Summary of diagnostic tools, identified issues, and resulting actions]
+<img src="/artifacts/crest-snn/table3.7.png" alt="Diagnostic tools summary" loading="lazy" />
+---
+
+<br />
+
+## 7. Results
+
+**Qualitative Improvements:**
+[Figure 3.10a&b: Confidence heatmaps before & after SNN fine-tuning showing reduced bias]
+<img src="/artifacts/crest-snn/figure3.10.png" alt="finetuning and visible improvements" loading="lazy" />
+
+
+[Table 3.5: Summary of SNN-only and SNN with ANN transfer learning experiments]
+<img src="/artifacts/crest-snn/table3.5.png" alt="Summary of SNN-only and SNN with ANN transfer" loading="lazy" />
+
+**Key Metrics:**
+- **Phase 1 (SNN-only):** Loss stagnated ~6.5; estimated IoU < 0.1
+- **Phase 2 (Hybrid):** Training loss decreased from 1.0060 to 0.8525; estimated IoU improved to ~0.18
+- **Training Time:** Hybrid approach reduced training time from ~13,680s to ~1,697s
+
+**Constraints:**
+- Single-sequence training (zurich_city_18_a) limited generalization
+- Computational constraints restricted fine-tuning to 3 epochs
+- Formal mAP@0.5 evaluation was precluded by dataset scope
+
+---
+
+<br />
+
+## 8. Interpretation
+
+**Why Hybrid Training Worked:**
+ANN pretraining provided stable initialization of spatial feature extractors, circumventing the SNN's gradient instability. The weight transfer mechanism:
+
+$$
+\max_{x} h_{\text{ANN}}^{(l)}(x) \approx V_{\theta}^{(l)} \quad \text{for each layer } l
+$$
+
+allowed the SNN to start from meaningful representations rather than random initialization.
+
+**The Static-Dynamic Gap:**
+The core limitation emerged: ANN pretraining captures spatial features but not temporal dynamics. The SNN must learn spike timing patterns during fine-tuning, which remains challenging with surrogate gradients. This explains the performance plateau above ANN baselines.
+
+**CREST's Promise vs. Practicality:**
+While CREST's architectural innovations (MESTOR, FSN neurons) are theoretically sound, their training dynamics prove brittle in practice. The hybrid approach offers a more accessible—if suboptimal—pathway to functional spike-based detection.
+
+---
+
+<br />
+
+## 9. Limitations & Trade-offs
+
+- **Dataset Scope:** Restricted to single DSEC sequence for iterative development
+- **Training Duration:** Limited compute prevented extensive hyperparameter tuning
+- **Architectural Fidelity:** Used standard LIF neurons instead of CREST's FSN for debuggability
+- **Evaluation Depth:** Relied on estimated IoU rather than full COCO-style mAP
+- **Augmentation Simplicity:** Implemented only basic vertical jitter (±2px)
+
+[Table 3.3: Effect of vertical jitter augmentation on SNN training]
+<img src="/artifacts/crest-snn/table3.3.png" alt="Effect of vertical jitter augmentation on SNN training" loading="lazy" />
+
+---
+
+<br />
+
+## 10. Contributions
+
+1. **Independent Implementation:** Complete from-scratch Python reimplementation of CREST pipeline, decoupled from original codebase constraints.
+
+2. **SNN Diagnostic Framework:** Novel suite of tools including gradient hooks, confidence heatmaps, and anchor analyzers specifically designed for spiking network debugging.
+
+3. **Hybrid Training Analysis:** Documented case study applying and validating ANN-pretraining + weight-transfer for SNN stabilization, with mechanistic analysis of benefits and limitations.
+
+4. **Public Artifacts:** Fully operational, open-source codebase with modular architecture supporting extension to other event-based datasets.
+
+5. **Empirical Insights:** First documented attempt to rigorously adapt CREST to DSEC-Detection, providing detailed failure analysis and mitigation strategies.
+
+---
+
+<br />
+
+## 11. Future Work
+
+**Immediate Next Steps:**
+1. Expand training to full DSEC-Detection dataset for improved generalization
+2. Implement formal mAP@0.5 evaluation for benchmark comparison
+3. Systematic hyperparameter sweeps for surrogate functions and loss weights
+
+**Architectural Improvements:**
+1. Integrate Temporal Difference Batch Normalization (TDBN) for stability
+2. Experiment with learned event encodings beyond fixed voxel grids
+3. Test RMP or FSN neuron alternatives to standard LIF
+
+**Advanced Hybrid Strategies:**
+1. Develop temporal-aware ANN pretraining (multi-step simulation)
+2. Implement progressive ANN→SNN conversion with calibration
+3. Explore spike-based attention mechanisms for feature refinement
+
+---
+
+<br />
+
+## 12. Artifacts & Reproducibility
+
+**Repository Structure:**
+```
+CREST-DSEC/
+├── data_processing/       # Event loading, voxelization
+├── models/               # MESTOR, YOLOANN, SpikingYOLO
+├── losses/              # YOLOLoss, ConjointLoss
+├── training/            # Training scripts for both phases
+├── diagnostics/         # Gradient hooks, visualization tools
+├── configs/             # Hyperparameter configurations
+└── notebooks/           # Analysis and visualization
+```
+
+**Reproduction Steps:**
+1. Preprocess DSEC events into voxel grids: `python preprocess_all_samples.py`
+2. Train YOLOANN: `python train_yolo_ann.py --config configs/ann.yaml`
+3. Transfer weights and fine-tune SNN: `python retrain_snn.py --config configs/snn.yaml`
+4. Generate diagnostics: `python diagnostics/analyze_run.py --run_id <run>`
+
+**Key Scripts:**
+- `transfer_weights.py`: ANN→SNN weight transfer function
+- `confidence_heatmap.py`: Visualization of spatial learning
+- `gradient_hooks.py`: Layer-wise gradient norm monitoring
+
+**License:** MIT License - Open for academic and research use with attribution.
+
+---
+
+*This project was conducted as a Final Year Project at the University of Manchester School of Computer Science under the supervision of Dr. Oliver Rhodes. The complete implementation and analysis represent an independent contribution to the field of event-based vision and spiking neural networks.*
+
+---
+
+## 13. Appendix: Reference Implementation
+
+<details class="raw">
+<summary>View complete annotated source code</summary>
+
+```python
+%=============================================================================
+% MESTOR Module Code Listings
+%=============================================================================
+\subsection*{MESTOR Module}
+\begin{lstlisting}[caption={MESTOR: Class definition and initialization.}, label={lst:mestor_init}]
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class MESTOR(nn.Module):
+    """Multi-Scale Event-based Spatiotemporal Representation module."""
+    def __init__(self, scales=[1, 2, 4], image_size=(480, 640), num_bins=5):
+        super().__init__()
+        self.scales = scales
+        self.image_size = image_size
+        self.num_bins = num_bins
+
+        # Multi-scale convolutional layers
+        self.conv_layers = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv2d(num_bins, 16, kernel_size=3, stride=s, padding=1),
+                nn.BatchNorm2d(16),
+                nn.LeakyReLU(0.1)
+            ) for s in scales
+        ])
+\end{lstlisting}
+
+\begin{lstlisting}[caption={MESTOR: process\_voxels method.}, label={lst:mestor_process}]
+    def process_voxels(self, voxels):
+        """Processes precomputed voxel grids through convolutional layers."""
+        batch_size = voxels.size(0)
+        scale_features = []
+        target_h, target_w = self.image_size[0] // 4, self.image_size[1] // 4
+
+        # Apply convolution and interpolation for each scale
+        for conv_block in self.conv_layers:
+            feat = conv_block(voxels)
+            if feat.shape[2:] != (target_h, target_w):
+                 feat = F.interpolate(
+                     feat, size=(target_h, target_w), mode='bilinear', align_corners=False
+                 )
+            scale_features.append(feat)
+
+        # Concatenate features from all scales
+        features = torch.cat(scale_features, dim=1)
+        return features
+\end{lstlisting}
+
+%=============================================================================
+% YOLOANN Model Code Listings
+%=============================================================================
+\subsection*{YOLOANN Model}
+\begin{lstlisting}[caption={YOLOANN: Class definition and initialization.}, label={lst:yoloann_init}]
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class YOLOANN(nn.Module):
+    """ANN version of the YOLO-like detector for pre-training."""
+    def __init__(self, num_classes=8, num_anchors=3, input_channels=48):
+        super(YOLOANN, self).__init__()
+        self.num_classes = num_classes
+        self.num_anchors = num_anchors
+        self.input_channels = input_channels
+
+        # Backbone CNN definition
+        self.backbone = nn.Sequential(
+            nn.Conv2d(self.input_channels, 64, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64), nn.ReLU(), nn.MaxPool2d(2),
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.BatchNorm2d(128), nn.ReLU(), nn.MaxPool2d(2),
+            nn.Conv2d(128, 256, kernel_size=3, padding=1),
+            nn.BatchNorm2d(256), nn.ReLU()
+        )
+
+        # Detection Head definition
+        output_channels = self.num_anchors * (5 + self.num_classes)
+        self.head = nn.Sequential(
+            nn.Conv2d(256, 512, kernel_size=3, padding=1),
+            nn.BatchNorm2d(512), nn.ReLU(),
+            nn.Conv2d(512, output_channels, kernel_size=1)
+        )
+
+        # Anchor Boxes definition
+        self.anchors = torch.tensor([
+            [0.0323, 0.0459], [0.1108, 0.1335], [0.2763, 0.4073]
+        ], device='cuda' if torch.cuda.is_available() else 'cpu')
+\end{lstlisting}
+
+\begin{lstlisting}[caption={YOLOANN: forward method - feature processing.}, label={lst:yoloann_forward_feat}]
+    def forward(self, x):
+        """ Forward pass for the ANN model. """
+        # Process features through backbone and head
+        features = self.backbone(x)
+        output = self.head(features) # [B, C_out, H/16, W/16]
+
+        batch_size, _, grid_h, grid_w = output.shape
+        # Reshape output for decoding: [B, H/16, W/16, A, 5+C]
+        output = output.view(batch_size, self.num_anchors, 5 + self.num_classes, grid_h, grid_w)
+        output = output.permute(0, 3, 4, 1, 2).contiguous()
+\end{lstlisting}
+
+\begin{lstlisting}[caption={YOLOANN: forward method - prediction decoding.}, label={lst:yoloann_forward_decode}]
+        # Decode Predictions
+        box_xy = torch.sigmoid(output[..., 0:2]) # Center coords rel. to cell
+        anchors_wh = self.anchors.view(1, 1, 1, self.num_anchors, 2).to(x.device)
+        box_wh = torch.sigmoid(output[..., 2:4]) * anchors_wh # WH rel. to anchors
+        box_confidence = torch.sigmoid(output[..., 4:5]) # Objectness score
+        box_class_probs = torch.sigmoid(output[..., 5:]) # Class probabilities
+
+        # Convert grid-relative coords to image-relative coords (normalized [0,1])
+        grid_y, grid_x = torch.meshgrid(torch.arange(grid_h, device=x.device),
+                                        torch.arange(grid_w, device=x.device), indexing='ij')
+        grid_xy = torch.stack((grid_x, grid_y), dim=-1).float().view(1, grid_h, grid_w, 1, 2)
+        grid_size = torch.tensor([grid_w, grid_h], device=x.device).view(1, 1, 1, 1, 2)
+        box_xy = (box_xy + grid_xy) / grid_size # Normalize centers
+        boxes = torch.cat((box_xy, box_wh), dim=-1) # Combine box parts
+
+        # Flatten outputs
+        num_predictions = grid_h * grid_w * self.num_anchors
+        return {
+            'boxes': boxes.view(batch_size, num_predictions, 4),
+            'confidence': box_confidence.view(batch_size, num_predictions, 1),
+            'class_probs': box_class_probs.view(batch_size, num_predictions, self.num_classes)
+        }
+\end{lstlisting}
+
+%=============================================================================
+% YOLOLoss Code Listings
+%=============================================================================
+\subsection*{YOLOLoss}
+\begin{lstlisting}[caption={YOLOLoss: Class definition and initialization.}, label={lst:yololoss_init}]
+import torch
+import torch.nn as nn
+
+class YOLOLoss(nn.Module):
+    """ Standard YOLO loss function for ANN training. """
+    def __init__(self, num_classes=8, anchors=None, grid_h=30, grid_w=40, lambda_coord=5.0, lambda_noobj=0.5):
+        super(YOLOLoss, self).__init__()
+        self.num_classes = num_classes
+        self.anchors = anchors
+        self.num_anchors = anchors.shape[0] if anchors is not None else 0
+        self.grid_h = grid_h
+        self.grid_w = grid_w
+        self.lambda_coord = lambda_coord
+        self.lambda_noobj = lambda_noobj
+        self.mse_loss = nn.MSELoss(reduction='sum') # For box regression
+        self.bce_loss = nn.BCEWithLogitsLoss(reduction='sum') # For conf/class
+\end{lstlisting}
+
+\begin{lstlisting}[caption={YOLOLoss: forward method - target assignment.}, label={lst:yololoss_forward_assign}]
+    def forward(self, predictions, targets):
+        """ Computes the YOLO loss. """
+        batch_size = predictions['boxes'].size(0)
+        num_preds = predictions['boxes'].size(1)
+        device = predictions['boxes'].device
+
+        # Initialize masks and target tensors
+        obj_mask = torch.zeros(batch_size, num_preds, dtype=torch.bool, device=device)
+        noobj_mask = torch.ones(batch_size, num_preds, dtype=torch.bool, device=device)
+        target_boxes_grid = torch.zeros(batch_size, num_preds, 4, device=device)
+        target_conf = torch.zeros(batch_size, num_preds, 1, device=device)
+        target_classes = torch.zeros(batch_size, num_preds, self.num_classes, device=device)
+
+        # Process targets to create masks and target values
+        for b in range(batch_size):
+            target_batch = targets[b] # Tensor [num_gt, 5] (class, xc, yc, w, h)
+            num_gt = target_batch.size(0)
+            if num_gt == 0: continue
+
+            # (*@... (Convert GT boxes to grid scale) @*)
+            gt_boxes_grid = target_batch[:, 1:5] * torch.tensor([self.grid_w, self.grid_h, self.grid_w, self.grid_h], device=device)
+            gt_classes = target_batch[:, 0].long()
+            anchors_grid = self.anchors.to(device) * torch.tensor([self.grid_w, self.grid_h], device=device)
+
+            # Assign each GT box to the best matching anchor
+            for gt_idx in range(num_gt):
+                gt_box = gt_boxes_grid[gt_idx]
+                gt_class = gt_classes[gt_idx]
+                gx, gy = gt_box[0].long(), gt_box[1].long()
+                gx = torch.clamp(gx, 0, self.grid_w - 1)
+                gy = torch.clamp(gy, 0, self.grid_h - 1)
+
+                # (*@... (Calculate IoU between GT and anchors) @*)
+                # (*... (Find best anchor `best_anchor_idx`) *)
+
+                # Calculate the flat index for the responsible prediction
+                pred_idx = (gy * self.grid_w + gx) * self.num_anchors + best_anchor_idx
+
+                # Mark prediction as responsible and set targets
+                obj_mask[b, pred_idx] = True
+                noobj_mask[b, pred_idx] = False
+                target_conf[b, pred_idx, 0] = 1.0
+                target_classes[b, pred_idx, gt_class] = 1.0
+                # (*... (Set target box coordinates relative to grid cell `target_boxes_grid`) *)
+\end{lstlisting}
+
+\begin{lstlisting}[caption={YOLOLoss: forward method - loss calculation.}, label={lst:yololoss_forward_calc}]
+        # --- Calculate Loss Components ---
+        loss_coord, loss_conf_obj, loss_conf_noobj, loss_class = 0.0, 0.0, 0.0, 0.0
+        pred_boxes = predictions['boxes']
+        pred_conf_logits = predictions['confidence']
+        pred_class_logits = predictions['class_probs']
+
+        # 1. Coordinate Loss (using MSE on predicted vs target grid coords)
+        if obj_mask.sum() > 0:
+             # Note: Requires prediction outputs to be in the same space as target_boxes_grid
+             # (e.g., direct tx, ty, tw, th outputs before sigmoid/exp/anchor scaling)
+             # This might need adjustment based on YOLOANN's exact output format.
+             # Assuming direct MSE on the box parameters for simplicity here.
+             loss_coord = self.mse_loss(pred_boxes[obj_mask], target_boxes_grid[obj_mask])
+
+        # 2. Confidence Loss (Object)
+        if obj_mask.sum() > 0:
+             loss_conf_obj = self.bce_loss(pred_conf_logits[obj_mask], target_conf[obj_mask])
+
+        # 3. Confidence Loss (No Object)
+        if noobj_mask.sum() > 0:
+             loss_conf_noobj = self.bce_loss(pred_conf_logits[noobj_mask], target_conf[noobj_mask])
+
+        # 4. Classification Loss
+        if obj_mask.sum() > 0:
+             loss_class = self.bce_loss(pred_class_logits[obj_mask], target_classes[obj_mask])
+
+        # Total Weighted Loss
+        total_loss = (self.lambda_coord * loss_coord +
+                      loss_conf_obj +
+                      self.lambda_noobj * loss_conf_noobj +
+                      loss_class) / batch_size
+        return total_loss
+\end{lstlisting}
+
+
+%=============================================================================
+% SpikingYOLO Model Code Listings
+%=============================================================================
+\subsection*{SpikingYOLO Model}
+\begin{lstlisting}[caption={SpikingYOLO: Class definition and initialization.}, label={lst:spikingyolo_init}]
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import snntorch as snn
+
+class SpikingYOLO(nn.Module):
+    """ Spiking Neural Network version of the YOLO-like detector. """
+    def __init__(self, num_classes=8, num_anchors=3, input_channels=48, time_steps=10, beta_init=0.9):
+        super().__init__()
+        self.num_classes = num_classes
+        self.num_anchors = num_anchors
+        self.input_channels = input_channels
+        self.time_steps = time_steps
+
+        # Surrogate Gradient Function
+        self.spike_grad_func = lambda x: torch.sigmoid(4*x) * (1 + 4*x*(1 - torch.sigmoid(4*x)))
+
+        # Spiking Backbone (Conv -> LIF -> Pool)
+        beta1, beta2, beta3 = beta_init, beta_init * 0.95, beta_init * 0.9
+        self.backbone = nn.Sequential(
+            nn.Conv2d(self.input_channels, 64, ks=3, padding=1),
+            snn.Leaky(beta=beta1, sg=self.spike_grad_func, init_hidden=True),
+            nn.MaxPool2d(2),
+            nn.Conv2d(64, 128, ks=3, padding=1),
+            snn.Leaky(beta=beta2, sg=self.spike_grad_func, init_hidden=True),
+            nn.MaxPool2d(2),
+            nn.Conv2d(128, 256, ks=3, padding=1),
+            snn.Leaky(beta=beta3, sg=self.spike_grad_func, init_hidden=True)
+        )
+
+        # Spiking Detection Head (Conv -> LIF -> Conv)
+        beta4 = beta_init * 0.85
+        output_channels = self.num_anchors * (5 + self.num_classes)
+        self.head = nn.Sequential(
+            nn.Conv2d(256, 512, ks=3, padding=1),
+            snn.Leaky(beta=beta4, sg=self.spike_grad_func, init_hidden=True),
+            nn.Conv2d(512, output_channels, ks=1) # Final layer non-spiking
+        )
+
+        # Temporal Attention (Conv3D layer)
+        self.temporal_attention = nn.Sequential(
+            nn.Conv3d(in_channels=1, out_channels=1, ks=(5,3,3), padding=(2,1,1))
+        )
+
+        # Anchor Boxes
+        self.anchors = torch.tensor([[0.0323, 0.0459], [0.1108, 0.1335], [0.2763, 0.4073]])
+\end{lstlisting}
+
+\begin{lstlisting}[caption={SpikingYOLO: forward method - simulation loop.}, label={lst:spikingyolo_forward_loop}]
+    def forward(self, x):
+        """ Forward pass over `time_steps`. """
+        # Move anchors to correct device
+        self.anchors = self.anchors.to(x.device)
+
+        # Initialize hidden states (membrane potentials)
+        snn.utils.reset(self.backbone)
+        snn.utils.reset(self.head)
+        head_outputs_over_time = []
+        all_spikes = []
+
+        # --- Simulation Loop ---
+        for t in range(self.time_steps):
+            # Process through backbone layers
+            y = x # Constant input over time
+            for layer in self.backbone:
+                if isinstance(layer, snn.Leaky):
+                    spk = layer(y) # Implicitly uses/updates hidden state
+                    all_spikes.append(spk.detach())
+                    y = spk
+                else: # Conv or Pool
+                    y = layer(y)
+
+            # Process through head layers
+            z = y # Output from backbone
+            for layer in self.head:
+                if isinstance(layer, snn.Leaky):
+                    spk = layer(z)
+                    all_spikes.append(spk.detach())
+                    z = spk
+                else: # Final 1x1 Conv
+                    z = layer(z)
+
+            head_outputs_over_time.append(z) # Store final layer output (logits)
+\end{lstlisting}
+
+\begin{lstlisting}[caption={SpikingYOLO: forward method - temporal aggregation.}, label={lst:spikingyolo_forward_agg}]
+        # --- Temporal Aggregation using Attention ---
+        # Stack outputs: [T, B, C_out, H/16, W/16]
+        detector_stack = torch.stack(head_outputs_over_time, dim=0)
+
+        # Permute for processing: [B, T, C_out, H/16, W/16]
+        detector_stack_permuted = detector_stack.permute(1, 0, 2, 3, 4)
+        # Average over channels for attention input: [B, T, 1, H/16, W/16]
+        attn_input = detector_stack_permuted.mean(dim=2, keepdim=True)
+        # Permute for Conv3D: [B, 1, T, H/16, W/16]
+        attn_input = attn_input.permute(0, 2, 1, 3, 4)
+
+        # Apply Conv3D attention mechanism
+        temp_attn = self.temporal_attention(attn_input) # [B, 1, T, H/16, W/16]
+        # Average spatially: [B, 1, T]
+        temp_attn = temp_attn.mean(dim=[3, 4])
+        # Softmax over time: [B, 1, T]
+        temporal_weights = torch.softmax(temp_attn, dim=2)
+        # Reshape weights for broadcasting: [B, T, 1, 1, 1]
+        temporal_weights = temporal_weights.permute(0, 2, 1).unsqueeze(-1).unsqueeze(-1)
+
+        # Apply weights and sum over time: [B, C_out, H/16, W/16]
+        output = (detector_stack_permuted * temporal_weights).sum(dim=1)
+\end{lstlisting}
+
+\begin{lstlisting}[caption={SpikingYOLO: forward method - final decoding.}, label={lst:spikingyolo_forward_decode}]
+        # --- Decode Aggregated Output ---
+        batch_size = x.size(0)
+        _, _, grid_h, grid_w = output.shape # H/16, W/16
+
+        output = output.view(batch_size, self.num_anchors, 5 + self.num_classes, grid_h, grid_w)
+        output = output.permute(0, 3, 4, 1, 2).contiguous() # [B, H/16, W/16, A, 5+C]
+
+        # Decode box parameters (using sigmoid for xy, exp for wh)
+        box_xy = torch.sigmoid(output[..., 0:2])
+        anchors_wh = self.anchors.view(1, 1, 1, self.num_anchors, 2)
+        box_wh = torch.exp(output[..., 2:4]) * anchors_wh
+
+        # Output logits for confidence and class probabilities
+        box_confidence_logits = output[..., 4:5]
+        box_class_logits = output[..., 5:]
+
+        # Convert to image-relative coordinates
+        # (*@... (Coordinate conversion using grid offsets) @*)
+        boxes = torch.cat((box_xy_norm, box_wh), dim=-1) # Assuming box_xy_norm is calculated
+
+        # Calculate average spike rate for regularization
+        spike_map = torch.stack([s.mean() for s in all_spikes]).mean() if all_spikes else torch.tensor(0.0)
+
+        # Flatten and return results
+        num_predictions = grid_h * grid_w * self.num_anchors
+        return {
+            'boxes': boxes.view(batch_size, num_predictions, 4),
+            'confidence': box_confidence_logits.view(batch_size, num_predictions, 1),
+            'class_probs': box_class_logits.view(batch_size, num_predictions, self.num_classes),
+            'spike_map': spike_map,
+            # (*@... (Dummy temporal outputs) @*)
+        }
+\end{lstlisting}
+
+%=============================================================================
+% ConjointLoss Code Listings
+%=============================================================================
+\subsection*{ConjointLoss}
+\begin{lstlisting}[caption={ConjointLoss: Class definition and initialization.}, label={lst:conjointloss_init}]
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class ConjointLoss(nn.Module):
+    """ Loss function for SNN fine-tuning with spike regularization. """
+    def __init__(self, spike_reg=0.01, lambda_reg=0.001, iou_threshold=0.1):
+        super().__init__()
+        self.spike_reg = spike_reg      # Weight for spike activity
+        self.lambda_reg = lambda_reg    # Weight for feature L2 regularization
+        self.iou_threshold = iou_threshold # Threshold for matching preds to GTs
+        # Use loss functions compatible with logits
+        self.bce_loss = nn.BCEWithLogitsLoss(reduction='sum')
+        self.smooth_l1_loss = nn.SmoothL1Loss(reduction='sum') # For box regression
+\end{lstlisting}
+
+\begin{lstlisting}[caption={ConjointLoss: forward method - target assignment.}, label={lst:conjointloss_forward_assign}]
+    def forward(self, outputs, targets, features=None):
+        """ Compute the conjoint loss for SNN training. """
+        pred_boxes = outputs['boxes']           # [B, N, 4] (decoded)
+        pred_conf_logits = outputs['confidence'] # [B, N, 1] (logits)
+        pred_class_logits = outputs['class_probs'] # [B, N, C] (logits)
+        avg_spike_rate = outputs['spike_map']   # Scalar
+        batch_size = pred_boxes.size(0)
+        num_preds = pred_boxes.size(1)
+        device = pred_boxes.device
+
+        # Initialize masks and target tensors
+        obj_mask = torch.zeros(batch_size, num_preds, dtype=torch.bool, device=device)
+        noobj_mask = torch.ones(batch_size, num_preds, dtype=torch.bool, device=device)
+        target_boxes_matched = torch.zeros(batch_size, num_preds, 4, device=device)
+        target_classes_matched = torch.zeros(batch_size, num_preds, dtype=torch.long, device=device)
+
+        # Match predictions to ground truth using IoU threshold
+        for b in range(batch_size):
+            target_dict = targets[b]
+            gt_boxes = target_dict['boxes'].to(device)
+            gt_classes = target_dict['class_ids'].to(device)
+            num_gt = gt_boxes.size(0)
+            if num_gt == 0: continue
+
+            iou_matrix = box_iou(pred_boxes[b], gt_boxes) # [N, num_gt]
+            if iou_matrix.numel() == 0: continue
+
+            # Assign predictions to GTs if IoU > threshold
+            # (*@... (Matching logic: find best GT for each pred, apply threshold) @*)
+            # (*... (Populate `obj_mask`, `noobj_mask`, `target_boxes_matched`, `target_classes_matched`) *)
+\end{lstlisting}
+
+\begin{lstlisting}[caption={ConjointLoss: forward method - loss calculation.}, label={lst:conjointloss_forward_calc}]
+        # --- Calculate Loss Components ---
+        loss_coord, loss_conf_obj, loss_conf_noobj, loss_class = 0.0, 0.0, 0.0, 0.0
+        num_obj = obj_mask.sum().item() # Use .item() for scalar value
+
+        # 1. Coordinate Loss (Smooth L1 on matched predictions)
+        if num_obj > 0:
+             pred_boxes_obj = pred_boxes[obj_mask]
+             target_boxes_obj = target_boxes_matched[obj_mask]
+             loss_coord = self.smooth_l1_loss(pred_boxes_obj, target_boxes_obj)
+
+        # 2. Confidence Loss (Object) - Target is 1.0
+        if num_obj > 0:
+             pred_conf_obj = pred_conf_logits[obj_mask]
+             target_conf_obj = torch.ones_like(pred_conf_obj) # Target is 1
+             loss_conf_obj = self.bce_loss(pred_conf_obj, target_conf_obj)
+
+        # 3. Confidence Loss (No Object) - Target is 0.0
+        if noobj_mask.sum().item() > 0:
+             pred_conf_noobj = pred_conf_logits[noobj_mask]
+             target_conf_noobj = torch.zeros_like(pred_conf_noobj) # Target is 0
+             loss_conf_noobj = self.bce_loss(pred_conf_noobj, target_conf_noobj)
+
+        # 4. Classification Loss (only for matched predictions)
+        if num_obj > 0:
+             pred_class_obj = pred_class_logits[obj_mask] # Logits [num_obj, C]
+             target_class_obj = target_classes_matched[obj_mask] # Indices [num_obj]
+             num_classes = pred_class_logits.shape[-1]
+             target_class_onehot = F.one_hot(target_class_obj, num_classes=num_classes).float()
+             loss_class = self.bce_loss(pred_class_obj, target_class_onehot)
+
+        # 5. Spike Regularization Loss
+        loss_spike = self.spike_reg * avg_spike_rate
+
+        # 6. Feature Regularization Loss (Optional L2 on MESTOR features)
+        loss_feature_reg = 0.0
+        if features is not None and self.lambda_reg > 0:
+            loss_feature_reg = self.lambda_reg * torch.mean(features**2)
+
+        # Total Loss (Normalize base losses by batch size)
+        total_loss = (loss_coord + loss_conf_obj + loss_conf_noobj + loss_class) / batch_size \
+                     + loss_spike + loss_feature_reg
+        return total_loss
+\end{lstlisting}
+
+%=============================================================================
+% Weight Transfer Function Listing
+%=============================================================================
+\subsection*{Transfer Weights}
+\begin{lstlisting}[caption={transfer\_weights: Function definition.}, label={lst:transfer_weights}]
+import torch
+import os
+
+def transfer_weights(ann_checkpoint_path, snn_model, mestor_model=None):
+    """ Transfers weights from ANN checkpoint to SNN and MESTOR models. """
+    DEVICE = snn_model.anchors.device # Infer device from SNN model
+    if not os.path.exists(ann_checkpoint_path): return False # Error handling
+
+    checkpoint = torch.load(ann_checkpoint_path, map_location=DEVICE)
+    ann_state_dict = checkpoint['model_state_dict'] # YOLOANN weights
+    mestor_ann_state_dict = checkpoint.get('mestor_state_dict', None)
+
+    # --- Load MESTOR Weights ---
+    if mestor_model is not None and mestor_ann_state_dict is not None:
+        try: mestor_model.load_state_dict(mestor_ann_state_dict)
+        except Exception as e: pass # Handle potential errors silently
+
+    # --- Transfer ANN -> SNN Weights ---
+    snn_state_dict = snn_model.state_dict()
+    # Define mapping between corresponding Conv layers in ANN and SNN
+    layer_mapping = {
+        # (*@... (Dictionary mapping ANN layer names to SNN layer names) @*)
+        # Example: 'backbone.0.weight': 'backbone.0.weight', 'head.3.weight': 'head.2.weight'
+    }
+
+    # Iterate through mapping, check shapes, and transfer weights
+    for ann_key, snn_key in layer_mapping.items():
+        if ann_key in ann_state_dict and snn_key in snn_state_dict:
+            if ann_state_dict[ann_key].shape == snn_state_dict[snn_key].shape:
+                snn_state_dict[snn_key] = ann_state_dict[ann_key]
+            # (*@... (Else: Handle shape mismatch warning) @*)
+        # (*@... (Else: Handle missing key warning) @*)
+
+    snn_model.load_state_dict(snn_state_dict)
+    # (*@... (Optional: Print summary of transfer success) @*)
+    return True
+\end{lstlisting}
+
+%=============================================================================
+% Training Function Listings (Setup Only)
+%=============================================================================
+\subsection*{train yolo ann}
+\begin{lstlisting}[caption={train\_yolo\_ann: Function definition and setup (training loop omitted).}, label={lst:trainann_setup}]
+import torch
+from torch.utils.data import DataLoader, Subset
+import time
+
+# Assumes MESTOR, YOLOANN, YOLOLoss, PreprocessedEventDataset, custom_collate_fn defined
+
+def train_yolo_ann(output_dir, save_path, epochs, batch_size, lr):
+    """ Sets up and trains the YOLOANN model (training loop details omitted). """
+    DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    # Initialize Models, Loss, Optimizer
+    mestor = MESTOR(image_size=(480, 640), num_bins=5).to(DEVICE)
+    model = YOLOANN(num_classes=8, num_anchors=3, input_channels=16 * len(mestor.scales)).to(DEVICE)
+    criterion = YOLOLoss(num_classes=8, anchors=model.anchors, grid_h=30, grid_w=40).to(DEVICE)
+    optimizer = torch.optim.Adam(list(mestor.parameters()) + list(model.parameters()), lr=lr)
+
+    # Load Data and create DataLoaders
+    dataset = PreprocessedEventDataset(output_dir)
+    # (*@... (Dataset splitting into train/val subsets) @*)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0, collate_fn=custom_collate_fn)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0, collate_fn=custom_collate_fn)
+
+    best_val_loss = float('inf')
+
+    # --- Training and Validation Loops Omitted ---
+    for epoch in range(epochs):
+        # (*@... (Training loop per epoch: forward, loss, backward, step) @*)
+        # (*@... (Validation loop per epoch: forward, loss, checkpoint saving) @*)
+        pass # Placeholder for omitted loops
+
+    # (*@... (End of training summary) @*)
+    # Returns trained models (or paths to saved models)
+    return mestor, model
+\end{lstlisting}
+
+\begin{lstlisting}[caption={retrain\_snn\_with\_preprocessed\_voxels: Function definition and setup (training loop omitted).}, label={lst:trainsnn_setup}]
+import torch
+from torch.utils.data import DataLoader, Subset
+import time
+
+# Assumes MESTOR, SpikingYOLO, ConjointLoss, PreprocessedEventDataset,
+# custom_collate_fn, transfer_weights defined
+
+def retrain_snn_with_preprocessed_voxels(pretrained_ann_path, output_dir, save_path,
+                                          epochs, batch_size, lr, weight_decay, clip_grad):
+    """ Sets up and fine-tunes SpikingYOLO (training loop details omitted). """
+    DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    # Initialize Models
+    mestor = MESTOR(image_size=(480, 640), num_bins=5).to(DEVICE)
+    model = SpikingYOLO(num_classes=8, num_anchors=3, input_channels=16*len(mestor.scales), time_steps=10).to(DEVICE)
+
+    # Weight Transfer from ANN
+    if not transfer_weights(pretrained_ann_path, model, mestor):
+         return None, None # Error handling
+
+    # Load Data and create DataLoaders
+    dataset = PreprocessedEventDataset(output_dir)
+    # (*@... (Dataset splitting into train/val subsets) @*)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0, collate_fn=custom_collate_fn)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0, collate_fn=custom_collate_fn)
+
+    # Loss and Optimizer
+    criterion = ConjointLoss(spike_reg=0.01, lambda_reg=0.001).to(DEVICE)
+    optimizer = torch.optim.AdamW(list(mestor.parameters()) + list(model.parameters()), lr=lr, weight_decay=weight_decay)
+
+    best_val_loss = float('inf')
+
+    # --- Training and Validation Loops Omitted ---
+    for epoch in range(epochs):
+        # (*@... (Training loop per epoch: forward, loss, backward, step) @*)
+        # (*@... (Validation loop per epoch: forward, loss, checkpoint saving) @*)
+        pass # Placeholder for omitted loops
+
+    # (*@... (End of training summary) @*)
+    # Returns fine-tuned models (or paths to saved models)
+    return mestor, model
+
+\end{document}
+```
+
+</details>

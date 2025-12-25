@@ -2,8 +2,18 @@
 import Base from '../layouts/SectionLayout.astro';
 import { getCollection } from 'astro:content';
 const notes = await getCollection('notebooks');
+
+// Generate markdown
+const rawMarkdown = `# Notebooks — All Notes
+
+${notes.map(note => `## ${note.data.title}${note.data.date ? `
+
+Date: ${note.data.date}` : ''}
+
+${note.body}
+`).join('\n---\n\n')}`;
 ---
-<Base title="Notebooks">
+<Base title="Notebooks" rawMarkdown={rawMarkdown}>
   <h1>Notebooks</h1>
   <ul class="loglist">
     {notes.map(note => (

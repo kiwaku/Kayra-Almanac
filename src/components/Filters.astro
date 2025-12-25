@@ -1,11 +1,73 @@
 <div class="filters">
   <span>Domain:</span>
-  <a href="?">all</a>
-  <a href="?domain=ai">ai</a>
-  <a href="?domain=security">security</a>
-  <a href="?domain=os">os</a>
+  <a href="?" data-filter="all">all</a>
+  <a href="?domain=ai" data-filter="domain" data-value="ai">ai</a>
+  <a href="?domain=security" data-filter="domain" data-value="security">security</a>
+  <a href="?domain=os" data-filter="domain" data-value="os">os</a>
+  <a href="?domain=hardware" data-filter="domain" data-value="hardware">hardware</a>
   <span>Status:</span>
-  <a href="?status=active">active</a>
-  <a href="?status=archived">archived</a>
-  <a href="?status=paused">paused</a>
+  <a href="?status=active" data-filter="status" data-value="active">active</a>
+  <a href="?status=archived" data-filter="status" data-value="archived">archived</a>
+  <a href="?status=paused" data-filter="status" data-value="paused">paused</a>
 </div>
+
+<script>
+  // Update active filter styling based on URL params
+  function updateActiveFilter() {
+    const params = new URLSearchParams(window.location.search);
+    const domain = params.get('domain');
+    const status = params.get('status');
+
+    // Remove all active classes
+    document.querySelectorAll('.filters a').forEach(link => {
+      link.classList.remove('active');
+    });
+
+    // Add active class to matching filter
+    if (!domain && !status) {
+      // "all" is active
+      document.querySelector('.filters a[data-filter="all"]')?.classList.add('active');
+    } else {
+      // Find matching domain or status filter
+      document.querySelectorAll('.filters a[data-filter]').forEach(link => {
+        const filterType = link.getAttribute('data-filter');
+        const filterValue = link.getAttribute('data-value');
+
+        if (filterType === 'domain' && filterValue === domain) {
+          link.classList.add('active');
+        }
+        if (filterType === 'status' && filterValue === status) {
+          link.classList.add('active');
+        }
+      });
+    }
+  }
+
+  // Run on page load
+  updateActiveFilter();
+
+  // Client-side navigation for filters (prevents page reload)
+  document.querySelectorAll('.filters a').forEach(link => {
+    link.addEventListener('click', function(e) {
+      e.preventDefault();
+
+      // Get the target URL from href
+      const url = new URL((e.currentTarget as HTMLAnchorElement).href);
+
+      // Update browser URL without reload
+      window.history.pushState({}, '', url);
+
+      // Update active filter styling
+      updateActiveFilter();
+
+      // Trigger filter update (dispatch custom event for catalog page to listen)
+      window.dispatchEvent(new Event('filterchange'));
+    });
+  });
+
+  // Handle browser back/forward buttons
+  window.addEventListener('popstate', function() {
+    updateActiveFilter();
+    window.dispatchEvent(new Event('filterchange'));
+  });
+</script>

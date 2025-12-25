@@ -1,0 +1,110 @@
+---
+title: "ORBIT-RXTX: Architecture, Antenna Pivot, and RF Plumbing"
+date: "2025-12-20"
+tags: ["rf", "hardware", "orbit-rxtx", "antennas"]
+project: orbit-rxtx
+images: []
+anomaly: false
+---
+
+Stage 1 architecture decisions, antenna selection rationale, and RF chain design.
+
+# 2025-12-25 — ORBIT-RXTX: Architecture, Antenna Pivot, and RF Plumbing
+[hardware, rf, satellite, leosat, antennas, rxtx, nanovna] · project: orbit-rxtx
+
+This log records the main design decisions and the pivot away from DIY cross-yagi attempts. The project page stays clean; this is the reasoning archive.
+
+---
+<br />
+
+## 1) Kickoff: What I actually want
+Goal: a disciplined LEO ground station that is showable even before TX.
+- Stage 1: RX-first + measurement + tracking + logs
+- Stage 2: licensed full-duplex with a TX-safe RF chain (linear transponder capable)
+
+Key constraint: I refuse to build a “mid-tier ham stunt”. The artifact is the system.
+
+---
+
+<br />
+
+## 2) Original antenna plan (and why it was wrong)
+Initial idea: buy two linear yagis per band and “combine into cross-yagi”.
+
+Why this breaks down physically:
+- A true cross-yagi has a controlled geometry and a single, well-defined phase center.
+- Two separate booms mounted near each other do not magically become one antenna system.
+- The “good” DIY examples online usually *remove one boom* or transplant elements onto a single boom → i.e., they’re actually building a real cross-yagi, not bolting two complete yagis together.
+
+Conclusion: continuing this path would likely produce a non-reproducible antenna with unknown polarization purity.
+
+Decision: stop being romantic about DIY and buy proven CP designs.
+
+---
+
+<br />
+
+## 3) Final antenna selection
+### 70 cm: U7V4 Cross Yagi (directional, CP)
+Why:
+- high gain where it matters for downlink SNR
+- tracking + gain is the cleanest way to get showable RX results
+
+Connector: SO-239 (female)
+
+### 2 m: Nagara QFH144 (omni, CP)
+Why:
+- polarization-mismatch loss is real and boring
+- QFH is proven for LEO RX in Japan and doesn’t require aim for basic coverage
+- 2 m becomes genuinely important once TX exists
+
+Connector: N-type (female)
+
+---
+
+<br />
+
+## 4) RF plumbing logic
+Principle: one long low-loss run, short flexible pigtails at the mast.
+- Main feedline: ~10 m 5D-FB / LMR-240 class (50Ω)
+- Pigtails: RG316 (20–50 cm) for connector adaptation + strain relief
+- Stage 1 switching: manual plug/unplug at the mast end (cheapest, lowest complexity)
+
+Notes:
+- Minimize adapter stack. Each adapter is a failure point and a loss point.
+- NanoVNA is not optional if I want to claim “disciplined system”.
+
+---
+
+<br />
+
+## 5) HackRF as TX: rejected
+HackRF is an analysis tool, not a credible satellite uplink transmitter:
+- output power is too low for uplink without a PA
+- filtering/linearity/control becomes a compliance risk
+- system complexity rises, credibility drops
+
+Decision: Stage 2 TX will use an actual all-mode rig.
+
+---
+
+<br />
+
+## 6) License plan (Japan)
+Target: 第三級アマチュア無線技士
+Reason: linear transponders demand SSB/CW/data. 4級 FM-only is not the goal.
+
+Path: 養成課程講習会（国家試験回避ルート）
+
+---
+
+<br />
+
+## 7) What “success” looks like (Stage 1)
+Showable artifacts before TX:
+- Doppler-corrected waterfall plots
+- pass logs (time/frequency curves)
+- tracking validation (signal peak vs pointing)
+- measured RF chain (NanoVNA S11 + notes)
+
+The payload is predictable. The system is the artifact.

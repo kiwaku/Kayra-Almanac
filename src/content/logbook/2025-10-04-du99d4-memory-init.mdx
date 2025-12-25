@@ -1,0 +1,64 @@
+---
+title: "DU99D4: Memory Init Failure (b7) & Early Investigation"
+date: "2025-10-04"
+tags: ["hardware", "hephaestus", "du99d4", "post"]
+project: hephaestus
+images:
+  - "/artifacts/hephaestus/test-drive-minimal.webp"
+  - "/artifacts/hephaestus/b7-warning.webp"
+  - "/artifacts/hephaestus/successful-boot.webp"
+anomaly: false
+---
+
+Minimal config POST attempts, b7 halt, DRAM training failure, and the decision to go deep on firmware.
+
+<br />
+
+### Session Goal: Minimal POST
+
+**Log started: 06:57 UTC**
+The objective was a simple "sanity check" power-on before full assembly. The rig is currently an open-frame bench with minimal variables:
+
+* **Motherboard:** ZX-DU99D4 V1.12 (C612 chipset).
+* **CPU:** Single Xeon E5-2650 v3 (Socket #1).
+* **RAM:** 1×8 GB DDR4 RDIMM ECC 2133 (Crucial).
+* **GPU:** Quadro P400 (Bus-powered).
+* **Power:** Corsair HX1000i. **Critical:** Only the 24-pin and the EPS 8-pin for Socket #1 are connected.
+
+<img src="/artifacts/hephaestus/test-drive-minimal.webp" alt="Test drive PC with minimum modules for testing" loading="lazy" />
+
+### The "b7" Dead End
+
+**10:20 — First Power-on.** Shorted `PWRBTN#` with a screwdriver.
+Fans spin, board powers, but no video. The 7-segment debug display cycled transient codes:
+
+`b0` (OEM pre-memory) → `53` (Memory init fail) → `b7` (Halt).
+
+**Code b7 Definition:** "Memory Configuration Error / Unsupported DIMM."
+
+<br />
+
+### Troubleshooting (The "Dirty Work")
+
+I spent the next two hours isolating variables. The behavior was stubborn:
+
+* **10:35 — CMOS Clear:** AC off, 24-pin removed, `CLR_CMOS` shorted for 15s. Moved DIMM to slot B1.
+* **Result:** `bD` → `bA` → `4F` → **b7 (Halt)**.
+* **11:00 — Dual Channel:** Added second stick (A1+B1).
+* **Result:** Same **b7**.
+* **11:30 — Physical Inspection:** Reseated CPU. Visually inspected LGA2011-3 socket pads; no bent pins found.
+
+<img src="/artifacts/hephaestus/b7-warning.webp" alt="B7 POST code warning" loading="lazy" />
+
+<br />
+
+### Diagnosis & Decision
+
+The hardware seems physically fine (pads even, PSU good). The prevailing theory is **Firmware Incompatibility**. The ZX-DU99D4 V1.12 is notorious for shipping with BIOS versions that lack proper microcode or DRAM initialization tables for certain SPD configurations.
+
+<br />
+
+**Action:** Ordered **CH341A SPI Programmer + SOP8 Clip**.
+**Plan:** In-circuit flash. I will not waste time swapping more RAM until I can verify the BIOS is a known-good version.
+
+<img src="/artifacts/hephaestus/successful-boot.webp" alt="Successful boot after BIOS flash" loading="lazy" />

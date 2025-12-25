@@ -11,6 +11,8 @@ const rawMarkdown = `# Catalog — All Projects
 
 ${all.map(p => `## ${p.data.title} (${p.data.year})
 
+${p.data.summary ? p.data.summary.replace(/<[^>]*>/g, '').replace(/&mdash;/g, '—').replace(/&#x3C;/g, '<').replace(/&#x3E;/g, '>') : p.body}
+
 Domain: ${p.data.domain.join(', ')}
 Status: ${p.data.status}
 ${p.data.metrics?.loc ? `LOC: ${p.data.metrics.loc}` : ''}
@@ -19,6 +21,7 @@ ${p.data.metrics?.loc ? `LOC: ${p.data.metrics.loc}` : ''}
 <Base title="Catalog — Projects" rawMarkdown={rawMarkdown}>
   <h1>Catalog</h1>
   <Filters />
+  <div id="filter-status" style="margin-bottom:12px; font-size:14px; font-family:var(--mono);"></div>
   <ol class="numlist" id="project-list">
     {await Promise.all(all.map(async (project) => {
       const { data } = project;
@@ -29,7 +32,7 @@ ${p.data.metrics?.loc ? `LOC: ${p.data.metrics.loc}` : ''}
           <div class="abstract">
             {data.summary ? <div set:html={data.summary} /> : <Content />}
           </div>
-          <ArtifactRow artifacts={data.artifacts} images={data.images} />
+          <ArtifactRow artifacts={data.artifacts} images={data.images} projectId={data.id} />
           <div class="badges">
             {data.domain.map(tag=> <span class="tag">{tag}</span>)}
             <span class={`badge ${data.status}`}>{data.status}</span>
@@ -52,6 +55,9 @@ ${p.data.metrics?.loc ? `LOC: ${p.data.metrics.loc}` : ''}
         const year = params.get('year');
 
         const items = list.querySelectorAll('.block');
+        let shown = 0;
+        let hidden = 0;
+
         items.forEach(function(item){
           const itemDomains = (item.getAttribute('data-domain') || '').split(' ');
           const itemStatus = item.getAttribute('data-status');
@@ -63,10 +69,23 @@ ${p.data.metrics?.loc ? `LOC: ${p.data.metrics.loc}` : ''}
 
           if(domainMatch && statusMatch && yearMatch){
             item.style.display = '';
+            shown++;
           } else {
             item.style.display = 'none';
+            hidden++;
           }
         });
+
+        // Update status line
+        const statusEl = document.getElementById('filter-status');
+        if(statusEl){
+          if(domain || status || year){
+            statusEl.textContent = shown + ' projects shown (' + hidden + ' hidden)';
+          } else {
+            statusEl.textContent = shown + ' projects shown';
+          }
+          statusEl.style.display = 'block';
+        }
       }
 
       // Filter on load
@@ -81,8 +100,8 @@ ${p.data.metrics?.loc ? `LOC: ${p.data.metrics.loc}` : ''}
         }
       });
 
-      // Re-filter on browser back/forward
-      window.addEventListener('popstate', filter);
+      // Re-filter when filter links are clicked (no reload)
+      window.addEventListener('filterchange', filter);
     })();
   </script>
 </Base>

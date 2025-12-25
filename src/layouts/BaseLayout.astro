@@ -13,6 +13,7 @@ const { title = 'Kayra — Workshop Almanac', rawMarkdown } = Astro.props;
     <meta name="description" content="Workshop Almanac: security, OS builds, AI eval, hardware logs.">
     <link rel="icon" href="/favicon-light.png" media="(prefers-color-scheme: light)" />
     <link rel="icon" href="/favicon-dark.png" media="(prefers-color-scheme: dark)" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous">
     <meta property="og:type" content="website">
     <meta property="og:title" content="Kayra — Workshop Almanac">
     <meta property="og:description" content="Security, OS builds, AI eval, hardware logs.">
@@ -247,6 +248,7 @@ const { title = 'Kayra — Workshop Almanac', rawMarkdown } = Astro.props;
           const img = lb.querySelector('img');
           if(img) {
             img.style.transform = 'scale(1)';
+            img.style.transformOrigin = 'center center';
             img.style.cursor = 'zoom-in';
           }
         }
@@ -260,15 +262,23 @@ const { title = 'Kayra — Workshop Almanac', rawMarkdown } = Astro.props;
           if(!img || ev.target !== img) return;
           ev.stopPropagation();
 
+          // Calculate cursor position relative to image
+          const rect = img.getBoundingClientRect();
+          const x = ((ev.clientX - rect.left) / rect.width) * 100;
+          const y = ((ev.clientY - rect.top) / rect.height) * 100;
+
           zoomIndex = (zoomIndex + 1) % zoomLevels.length;
           currentZoom = zoomLevels[zoomIndex];
+
+          // Set transform origin to cursor position, then zoom
+          img.style.transformOrigin = x + '% ' + y + '%';
           img.style.transform = 'scale(' + currentZoom + ')';
           img.style.cursor = currentZoom < zoomLevels[zoomLevels.length - 1] ? 'zoom-in' : 'zoom-out';
 
           // Update hint
           const hint = lb.querySelector('.zoom-hint');
           if(hint) {
-            hint.textContent = '🔍 Click to zoom · ESC to close';
+            hint.textContent = currentZoom > 1 ? '🔍 Click to zoom out · ESC to close' : '🔍 Click to zoom · ESC to close';
           }
         });
       }
@@ -281,6 +291,7 @@ const { title = 'Kayra — Workshop Almanac', rawMarkdown } = Astro.props;
           const img = lb.querySelector('img');
           if(img) {
             img.style.transform = 'scale(1)';
+            img.style.transformOrigin = 'center center';
             img.style.cursor = 'zoom-in';
           }
         }
@@ -291,6 +302,7 @@ const { title = 'Kayra — Workshop Almanac', rawMarkdown } = Astro.props;
     if(img && a instanceof HTMLAnchorElement) {
       img.src = a.href;
       img.style.transform = 'scale(1)';
+      img.style.transformOrigin = 'center center';
       img.style.cursor = 'zoom-in';
       zoomIndex = 0;
     }

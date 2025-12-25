@@ -6,27 +6,28 @@ const grouped = parts.reduce((acc, p) => {
   (acc[p.data.part] ||= []).push(p);
   return acc;
 }, {} as Record<string, typeof parts>);
+
+// Generate markdown
+const rawMarkdown = `# Hardware — Hephaestus
+
+${Object.entries(grouped).map(([part, list]) => `## ${part.charAt(0).toUpperCase() + part.slice(1)}
+
+${list.map(entry => `### ${entry.data.title}
+
+${entry.body}${entry.data.images ? `
+
+Images: ${entry.data.images.join(', ')}` : ''}
+`).join('\n')}`).join('\n')}`;
 ---
-<Base title="Hardware — Hephaestus">
+<Base title="Hardware — Hephaestus" rawMarkdown={rawMarkdown}>
   <h1>Hardware: Hephaestus</h1>
   {Object.entries(grouped).map(async ([part, list]) => (
     <>
-      <h2>{part.charAt(0).toUpperCase() + part.slice(1)}</h2>
       {list.map(async (entry) => {
         const { Content } = await entry.render();
         return (
           <article class="card">
-            <h3>{entry.data.title}</h3>
             <Content />
-            {entry.data.images && (
-              <div class="images">
-                {entry.data.images.map(img => (
-                  <a href={img} class="lightbox thumb">
-                    <img src={img} alt={entry.data.title} loading="lazy" />
-                  </a>
-                ))}
-              </div>
-            )}
           </article>
         );
       })}

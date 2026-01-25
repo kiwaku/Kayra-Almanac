@@ -307,6 +307,27 @@ main, .shell, .content, .left, header, footer {
   image-rendering:pixelated;
 }
 
+/* Index kicker - meta line, not hero */
+.index-kicker {
+  margin: 0 0 18px 0;
+  font-size: 18px;
+  font-weight: 600;
+  font-style: normal;
+  letter-spacing: 0;
+}
+
+.index-kicker em.muted {
+  font-weight: 400;
+  font-style: italic;
+  opacity: 0.75;
+}
+
+.index-kicker a {
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: 0.03em;
+}
+
 /* Cards - NO borders, tight spacing */
 .home .card, .grid .card {
   padding:0;

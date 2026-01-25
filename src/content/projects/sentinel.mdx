@@ -1,0 +1,105 @@
+---
+title: Sentinel
+id: sentinel
+year: 2025
+domain: ["ai", "security"]
+status: "archived"
+featured: false
+summary: "<strong>AI-Powered Opportunity Extraction</strong> engine for automated email analysis. System implements LLM-based parsing, semantic filtering, and multi-source monitoring to surface high-value leads.<ul><li>LLM Orchestration (DSPy / Together AI)</li><li>Semantic Search (Sentence Transformers)</li><li>Local-first Privacy (SQLite)</li></ul>"
+artifacts:
+  diagram: ""
+  diagram2: ""
+images:
+  - "/artifacts/sentinel/sentinel_email.png"
+related: []
+---
+
+Sentinel is an intelligent email processing engine designed to automate the identification of high-value opportunities within high-volume inboxes.
+It combines Large Language Models (LLM) for context-aware extraction with semantic vector embeddings for personalized filtering, establishing a privacy-first local pipeline for managing professional leads.
+The system operates as a headless background service, monitoring multiple accounts and delivering condensed, actionable intelligence directly to your primary inbox via automated daily summaries.
+The system is designed not as a general-purpose email client, but as a focused research platform for automating the "search and filter" phase of professional networking.
+
+---
+
+<br />
+
+### At a glance
+
+- **Stack:** Python 3.x, SQLite, Pydantic
+- **AI/ML Core:**
+  - **Extraction:** DSPy framework + Together AI (LLM)
+  - **Filtering:** Sentence-Transformers (Cosine Similarity)
+- **Processing Pipeline:**
+  - **Ingress:** IMAP/SMTP (Multi-account support for Gmail/Outlook/Yahoo)
+  - **Analysis:** Named Entity Recognition (NER) + Semantic scoring
+  - **Storage:** Local SQLite database with Pandas for data manipulation
+- **Interface:** Command Line Interface (CLI) + Automated Email Summaries
+
+---
+
+<br />
+
+## **System Output — Automated Opportunity Summary**
+
+  <div class="diagram-section">
+  <a href="/artifacts/sentinel/sentinel_email.png" class="lightbox">
+  <img src="/artifacts/sentinel/sentinel_email.png" alt="Sentinel Email Summary Output" />
+  </a>
+  </div>
+
+This image displays the final output of the Sentinel pipeline: a structured email summary. After the engine processes the configured source accounts, it compiles identified opportunities into a clean digest, including metadata like organization names, opportunity types, and relevance scores, sent directly to the user's recipient address.
+
+---
+
+<br />
+
+### Capabilities map
+
+This map outlines the core functionality provided by the current release, spanning ingestion, analysis, and data management.
+
+#### Core capabilities
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>A) AI-Powered Extraction</strong> (LLM/DSPy)</summary>
+
+- **Contextual Analysis:** Uses LLMs to distinguish actual opportunities like fellowships or grants from generic noise.
+- **DSPy Orchestration:** Employs the DSPy framework for advanced prompt engineering and reliable LLM orchestration.
+- **Entity Recognition:** Automatically extracts organization names, deadlines, and requirements using automated NER.
+- **Provider Agnostic:** Supports multiple backends including Together AI and local Ollama instances.
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>B) Smart Filtering & Ranking</strong> (NLP/ML)</summary>
+
+- **Semantic Similarity:** Uses Sentence-Transformers to compare email content against your "Interest Profile" using vector embeddings.
+- **Adaptive Thresholding:** Implements cosine similarity scoring to rank opportunities and filter out low-relevance items.
+- **Scoring Weights:** Configurable priority calculation based on time-sensitivity and user-defined interest weights.
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>C) Secure & Local Architecture</strong> (Privacy)</summary>
+
+- **Local Processing:** All sensitive email data is processed on the local machine; no data is sent to external clouds for storage.
+- **Credential Management:** Secure environment-based handling via `python-dotenv` to keep API keys and passwords out of source code.
+- **Storage Integrity:** Uses Pydantic for strict data validation and schema enforcement within the local SQLite database.
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>D) Operational Infrastructure</strong> (Reliability)</summary>
+
+- **Multi-Source Monitoring:** Simultaneously monitors distinct accounts across different providers like Gmail and Outlook.
+- **Deduplication:** Prevents redundant processing of identical opportunities across different email threads.
+- **Automated Validation:** Features a comprehensive test suite for validating IMAP/SMTP connections and system functionality.
+</details>
+
+---
+
+<br />
+
+### Build & Deployment
+
+The engine is built for headless operation with local-first configuration.
+
+- **Configurable Profiles:** `config/profile.json` manages interests, geographic preferences, and exclusion keywords.
+- **CLI Management:** `cli.py` allows for interactive profile updates and manual keyword searches across the local database.
+- **Workflow:** Ingestion → AI Analysis → Smart Filtering → Local Storage → Summarization.

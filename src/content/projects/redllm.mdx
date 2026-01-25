@@ -1,24 +1,303 @@
 ---
 title: RedLLM
 id: redllm
-year: 2024
-domain: [ "ai", "security" ]
+year: 2025
+domain: ["security", "ai"]
 status: "active"
 featured: true
-summary: "Adversarial red-team eval harness for LLMs. Automated jailbreak testing, toxicity probes, and hallucination metrics.<ul><li>60k prompt dataset across 12 attack categories</li><li>240 GPU-hours of fine-tuning and eval</li><li>Judge ensemble (GPT-4 + Claude + Llama Guard)</li><li>CSV/JSON export for compliance reports</li></ul>"
-metrics: { gpu_hours: 240, dataset_size: "60k prompts" }
+summary: "<strong>Enterprise-grade Red Teaming</strong> framework for LLM vulnerability assessment. System implements adaptive multi-round attack generation, ε-greedy bandit allocation, and comprehensive jailbreak taxonomy.<ul><li>Adaptive AI Attack Generation (DSPy + ε-greedy)</li><li>Multi-provider LLM Orchestration (LiteLLM)</li><li>Dual Output + Web UI Investigation (CSV + JSONL / details)</li></ul>"
 artifacts:
-  diagram: "/artifacts/redllm/pipeline.png"
-  readme: "https://github.com/you/redllm#readme"
+  diagram: ""
+  diagram2: ""
+  readme: "https://github.com/yourusername/redllm"
 images:
-  - "/artifacts/redllm/results.jpg"
-  - "/artifacts/redllm/dashboard.jpg"
-related: [ "himorogi" ]
+  - "/artifacts/redllm/security_report_output.webp"
+related: []
 ---
 
-Adversarial red-team eval harness for LLMs. Automated jailbreak testing, toxicity probes, and hallucination metrics.
+RedLLM is an enterprise-grade LLM vulnerability testing framework designed for security researchers and AI safety teams to systematically stress-test model defenses and generate audit-friendly reports.
+Unlike prompt "grab bags," RedLLM runs automated multi-round adversarial simulations and tracks strategy performance over time—treating red teaming as an experiment pipeline, not a list of tricks.
+It supports both fast baseline mutation and AI-driven adaptive generation (ε-greedy multi-armed bandits), enabling it to learn which attack families perform best on a target model during a run.
+Outputs are structured for investigation: CSV summaries for executive review, and untruncated JSONL / details artifacts for deep forensics and Web UI exploration.
 
-- 60k prompt dataset across 12 attack categories
-- 240 GPU-hours of fine-tuning and eval
-- Judge ensemble (GPT-4 + Claude + Llama Guard)
-- CSV/JSON export for compliance reports
+---
+
+<br />
+
+## At a glance
+
+- **Stack:** Python 3.x · DSPy · LiteLLM · Docker (optional) · Next.js Web UI
+- **Core idea:** treat jailbreak discovery as a **budgeted search problem**
+  - **Seed round:** generate diverse initial variants across multiple strategies
+  - **Adaptive rounds:** allocate more budget to strategies that are empirically winning (ε-greedy bandit)
+- **V2 pipeline (active):**
+  - Generator → Validator → Executor → Judge → Reporter
+- **Outputs (investigation-first):**
+  - CSV report (summary / spreadsheet-friendly)
+  - JSONL run trace (untruncated, recommended for UI)
+  - Hybrid mode: `--details-dir` for per-variant JSON artifacts + manifest
+
+---
+
+<br />
+
+## System Output — Vulnerability Assessment Report
+
+<div class="diagram-section">
+  <a href="/artifacts/redllm/security_report_output.webp" class="lightbox">
+    <img src="/artifacts/redllm/security_report_output.webp" alt="RedLLM Security Report Output" />
+  </a>
+</div>
+
+This report view is the end-product of a RedLLM run: every attempted variation is captured with the model response and an explicit "jailbreak detected" style outcome, allowing rapid identification of which strategies and prompts broke a target model's guardrails.
+RedLLM is designed to preserve a complete audit trail (configuration → prompt lineage → judge decisions), so you can reproduce findings and translate them into actionable remediation work.
+
+---
+
+<br />
+
+## Capabilities map
+
+This map outlines the core functionality of the current RedLLM release, spanning generation, orchestration, evaluation, and operational safeguards.
+
+### Core capabilities
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>A) Adaptive Attack Generation</strong> (AI-driven search)</summary>
+
+- **ε-Greedy bandit allocation:** treats each strategy as an "arm," explores broadly early, then exploits high-performing strategies while keeping exploration via ε.
+- **Multi-round runs:** Round 0 seeds diverse variants; subsequent rounds reallocate generation budget based on observed success signals.
+- **Inline feedback loop:** variants are executed and judged during generation so adaptation happens inside a single run (not offline).
+- **Strategy lineage tracking:** each variant carries strategy metadata + round provenance so you can analyze which families actually worked.
+
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>B) V2 Pipeline Orchestration</strong> (modular & scalable)</summary>
+
+- **V2 pipeline is the sole active implementation:** clean separation of concerns (Generator → Validator → Executor → Judge → Reporter).
+- **Dual generation engines:** a "simple" engine for fast text wrappers, and a DSPy engine for LLM-assisted strategy generation.
+- **Strict/permissive validation:** configurable guardrails on what gets executed and logged to keep runs reliable in messy provider conditions.
+
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>C) Evaluation & Reporting</strong> (research-grade outputs)</summary>
+
+- **Judge-driven evaluation:** per-variant scoring + classification feeds both reporting and adaptive allocation (no "hand-wavy" success criteria).
+- **CSV contract:** dense, spreadsheet-friendly executive summary (including success semantics) suitable for briefings.
+- **JSONL trace:** untruncated prompts/responses + structured judge objects for forensic analysis and UI ingestion.
+- **Hybrid output:** `--details-dir` emits per-variant JSON artifacts plus a manifest for investigation workflows.
+
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>D) Web UI Investigation</strong> (interactive triage)</summary>
+
+- **Import formats:** JSONL recommended (full text); CSV supported but truncated previews.
+- **Auto-detection + warnings:** UI detects format and warns when CSV truncation is present.
+- **Strategy filtering & lineage views:** drill down by strategy family and inspect variant-level details with judge rationale.
+
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>E) Operational Safety & Resilience</strong> (security tooling standards)</summary>
+
+- **CSV injection protection:** prevents spreadsheet formula execution risks when viewing attacker-controlled text in Excel/Sheets.
+- **Path safety + atomic writes:** safe filenames, traversal protection, and atomic output to reduce corruption risk on crashes.
+- **Resume from interruption:** designed to detect interrupted runs and continue without losing progress (with integrity checks).
+- **Local-first privacy:** API keys are not logged; experimental results remain local by default for research confidentiality.
+
+</details>
+
+---
+
+<br />
+
+## Architecture (how it actually works)
+
+RedLLM runs on a V2 pipeline architecture that standardizes configuration resolution, execution, evaluation, and reporting into a reproducible flow.
+
+### V2 Pipeline Flow
+
+```text
+Input (CLI / Spec File)
+   ↓
+EnvLoader (resolve provider/models/keys from .env + CLI)
+   ↓
+ConfigNormalizer (normalize to EffectiveConfig)
+   ↓
+V2Pipeline:
+  - Generator  (Simple OR DSPy engine)
+  - Validator  (strict/permissive)
+  - Executor   (runs candidates against target)
+  - Judge      (external LLM evaluation)
+  - Reporter   (CSV / JSONL / Hybrid details)
+   ↓
+Artifacts (report.csv + run_trace.jsonl + optional details/)
+```
+
+### Why dual generation engines?
+
+- **Simple engine:** fast, deterministic, zero extra LLM calls—useful for cheap baselines and high-throughput sweeps.
+- **DSPy engine:** structured strategy generation when you want more intelligent variant proposals (supports adaptive mode).
+
+### BAML routing (small-model optimization)
+
+For small models (≤7B), RedLLM can route DSPy predictor calls through BAML to reduce token overhead and improve schema reliability; larger models default to standard JSON schema validation.
+
+**Environment toggles (examples):**
+
+```bash
+REDLLM_USE_BAML=auto           # auto | always | never
+# REDLLM_BAML_KILLSWITCH=true  # emergency disable
+```
+
+### Structured metrics (observability)
+
+At verbose level ≥2, RedLLM emits structured metrics for debugging and cost/perf analysis—schema mode, parse failures, token usage, latency, and fallback events.
+
+---
+
+
+<br />
+
+
+## Running RedLLM (CLI / Docker / Spec runs)
+
+### Local CLI (typical)
+
+```bash
+# Reads provider + keys from .env when not supplied via CLI
+python3 src/redllm/main.py \
+  --variations 6 \
+  --max-jailbreaks 10 \
+  --output results.csv \
+  --verbose 1
+```
+
+### Adaptive mode (ε-greedy multi-round)
+
+Adaptive mode uses Round 0 seeding + subsequent ε-greedy budget allocation to focus on strategies that are winning, while still exploring alternatives via ε.
+
+```bash
+python3 src/redllm/main.py \
+  --use-adaptive \
+  --variations 5 \
+  --max-jailbreaks 3 \
+  --output results.csv \
+  --verbose 1
+```
+
+**Key .env parameters (example):**
+
+```bash
+TOGETHER_API_KEY=your_key
+DEFAULT_PROVIDER=together_ai
+DEFAULT_MODEL=deepseek-ai/DeepSeek-R1-Distill-Llama-70B-free
+
+MAX_ADAPTIVE_ROUNDS=2
+EPSILON=0.10
+SEED=42
+```
+
+### Docker (two execution methods)
+
+RedLLM supports two Docker workflows: (1) direct CLI commands, or (2) spec files (.redrun.json) generated via UI or manually for repeatable runs.
+
+```bash
+# Method 1: Direct CLI in container
+docker run --rm -v $(pwd)/output:/app/output redllm:latest \
+  --output "test_results.csv" \
+  --variations 6 \
+  --max-jailbreaks 10 \
+  --verbose 1
+
+# Method 2: Spec file execution (repeatable)
+docker run --rm \
+  -v $(pwd)/specs:/specs \
+  -v $(pwd)/output:/app/output \
+  -v $(pwd)/details:/app/details \
+  -e TARGET_KEYS="your_target_key" \
+  -e JUDGE_KEYS="your_judge_key" \
+  redllm:latest \
+  /specs/run.redrun.json
+```
+
+---
+
+<br />
+
+## Output formats (what you get & what to use)
+
+### CSV (executive summary)
+
+CSV is optimized for spreadsheet workflows and reporting, but will truncate some long-text fields for readability; it's the "briefing artifact," not the forensic artifact.
+RedLLM also includes CSV injection protections to prevent formula execution when viewing attacker-controlled strings in Excel/Sheets.
+
+### JSONL run trace (forensics + UI)
+
+JSONL preserves full, untruncated prompts and responses and is the recommended input for the Web UI because it supports complete prompt visibility and deeper judge analysis.
+
+### Hybrid mode (--details-dir)
+
+Hybrid mode produces CSV + one JSON file per variant plus a manifest, enabling exec-friendly summaries while preserving full investigative data locally.
+
+---
+
+
+<br />
+
+
+## Web UI (interactive investigation)
+
+RedLLM includes a Next.js Web UI for importing results, extracting metadata, filtering by strategy family, and inspecting full judge decisions; the UI can auto-detect input format and warn if CSV truncation is detected.
+
+```bash
+cd redllm-ui && npm run dev
+# Open http://localhost:3000
+```
+
+**Import guidance:**
+
+- Prefer run_trace.jsonl for full-text inspection.
+- Use CSV when you only need compact summaries / spreadsheet analysis (UI warns about truncation).
+
+---
+
+
+<br />
+
+
+## Research foundation & datasets
+
+RedLLM is built to be compatible with community red-teaming datasets and taxonomies, incorporating widely used jailbreak corpora used in security research and defensive evaluation workflows.
+
+- **plinytheelder/red-llm** — jailbreak prompt collection
+- **elder-plinius/l1b3rt4s / cl4r1t4s** — model-specific jailbreak repos and template bases
+
+---
+
+
+<br />
+
+
+## Security posture & responsible use
+
+RedLLM is designed for legitimate security research, internal assessment, and responsible disclosure workflows—keeping credentials local, avoiding sensitive logging, and generating audit trails suitable for remediation and compliance contexts.
+
+- Scope runs to models/systems you are authorized to test.
+- Treat outputs as sensitive: they may contain attack strings and model behaviors you don't want publicly indexed.
+- Use JSONL/details internally for engineering; publish only high-level summaries when necessary.
+
+---
+
+
+<br />
+
+
+## Build & integration notes (practical)
+
+- **Configuration precedence:** CLI overrides .env; use .env for defaults and reproducible environments.
+- **Debugging:** --verbose 2 enables deeper observability including structured metrics.
+- **Long runs:** use unbuffered execution to see live progress (e.g., PYTHONUNBUFFERED=1 python3 -u ...).

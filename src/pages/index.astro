@@ -26,9 +26,10 @@ ${logbook.map(e => `- ${e.data.date} — ${e.data.title}${e.data.anomaly ? ' ⚠
 ---
 <Base title="Kayra — Workshop Almanac" rawMarkdown={rawMarkdown}>
   <section class="home">
-    <h1>Start Here</h1>
-    <p>New here? <a href="/about">About →</a></p>
-    <p>Three flagship builds with receipts.</p>
+    <p class="index-kicker">
+      Three flagship builds. <em class="muted">Full list in</em>
+      <a href="/catalog">CATALOG</a>
+    </p>
 
     <ol class="diamondlist">
       {await Promise.all(flagships.map(async (project) => {

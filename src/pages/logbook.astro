@@ -12,7 +12,7 @@ const byYear = entries.reduce((acc, e)=>{
 // Generate markdown
 const rawMarkdown = `# Logbook — All Entries
 
-${Object.entries(byYear).map(([year, list]) => `## ${year}
+${Object.entries(byYear).sort(([a],[b]) => Number(b) - Number(a)).map(([year, list]) => `## ${year}
 
 ${list.map(e => `### ${e.data.date} — ${e.data.title}
 
@@ -23,7 +23,7 @@ Project: ${e.data.project}` : ''}${e.data.anomaly ? `
 ---
 <Base title="Logbook" rawMarkdown={rawMarkdown}>
   <h1>Logbook</h1>
-  {Object.entries(byYear).map(([y, list])=> (
+  {Object.entries(byYear).sort(([a],[b]) => Number(b) - Number(a)).map(([y, list])=> (
     <>
       <h2 class="year">{y}</h2>
       <ul class="loglist">

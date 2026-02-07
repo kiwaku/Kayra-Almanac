@@ -1,0 +1,129 @@
+---
+title: "CUDA VM Networking: Internal-Only on vmbr2"
+date: "2026-01-27"
+tags: ["hardware", "hephaestus", "networking", "ubuntu", "netplan", "docker"]
+project: hephaestus
+images: []
+anomaly: false
+---
+
+Ubuntu netplan config, cloud-init pitfall, internal-only IP, and the docker0 binding trick for Open WebUI.
+
+<br />
+
+### Goal
+
+- CUDA VM lives on vmbr2 only (192.168.100.0/24)
+- No default route by default (no ambient internet)
+- Reachable only from bastion/internal network
+- When needed, temporary egress is enabled via bastion scripts (later doc)
+
+---
+
+<br />
+
+### Interfaces observed
+
+Inside CUDA VM:
+- **enp6s18** = internal NIC (vmbr2)
+- **docker0** = 172.17.0.1/16 (Docker bridge, local only)
+
+`/etc/network/interfaces` did not exist — Ubuntu uses netplan.
+
+---
+
+<br />
+
+### Netplan / cloud-init pitfall
+
+CUDA VM had multiple netplan YAML files:
+- `00-installer-config.yaml`
+- `01-vmbr2.yaml`
+- `50-cloud-init.yaml`
+
+Key observation: `50-cloud-init.yaml` effectively controls networking unless disabled. It contained a note: "Changes will not persist across reboot."
+
+**Fix strategy:**
+
+1. Disable cloud-init network config — create `/etc/cloud/cloud.cfg.d/99-disable-network-config.cfg`:
+```yaml
+network: {config: disabled}
+```
+2. Keep a single authoritative netplan file for vmbr2 (`01-vmbr2.yaml`).
+3. Move other netplan files aside to avoid merge/conflicts.
+
+---
+
+<br />
+
+### Final internal-only netplan (vmbr2)
+
+File: `/etc/netplan/01-vmbr2.yaml`
+
+```yaml
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    enp6s18:
+      dhcp4: false
+      addresses:
+        - 192.168.100.100/24
+```
+
+Apply:
+```bash
+sudo netplan generate
+sudo netplan apply
+```
+
+Verify:
+```bash
+ip a show enp6s18
+ip route
+```
+
+Expected routing (no default route):
+- `192.168.100.0/24 dev enp6s18`
+- (no "default via ...")
+
+---
+
+<br />
+
+### Bastion connectivity checks
+
+From bastion:
+```bash
+ping 192.168.100.100
+ssh kudakuda@192.168.100.100
+```
+
+---
+
+<br />
+
+### Docker note: why docker0 matters
+
+Open WebUI runs in Docker on the CUDA VM. Linux Docker sometimes lacks reliable `host.docker.internal` mapping.
+
+Simplest robust approach:
+- Bind llama-server to docker0 IP (typically **172.17.0.1**)
+- Configure Open WebUI provider URL to `http://172.17.0.1:10001/v1`
+
+Get docker0 IP:
+```bash
+ip -4 addr show docker0 | awk '/inet /{print $2}' | cut -d/ -f1
+```
+
+---
+
+<br />
+
+### Temporary egress experiences (pre-script)
+
+Observed:
+- Without default route + DNS, apt/HF downloads fail as expected.
+- NAT + default route alone is not enough; DNS must also be configured during egress.
+
+This is handled cleanly by the final egress scripts (see egress-control log).

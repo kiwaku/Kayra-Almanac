@@ -1,0 +1,272 @@
+---
+title: "LLM Stack: llama.cpp + Qwen2.5-32B + Open WebUI"
+date: "2026-01-27"
+tags: ["hardware", "hephaestus", "llm", "llama.cpp", "qwen", "docker", "open-webui"]
+project: hephaestus
+images: []
+anomaly: false
+---
+
+llama.cpp CUDA build, Qwen2.5-32B model download, llama-server flags, Open WebUI Docker wiring, and start/stop scripts.
+
+<br />
+
+### Components
+
+- **llama.cpp** built with CUDA (P40 = compute capability 6.1)
+- **Model:** Qwen2.5-32B-Instruct (GGUF) quant: IQ4_XS
+- **Open WebUI** in Docker as front-end
+- **llama-server** bound to docker0 IP so container can reach it
+
+---
+
+<br />
+
+### llama.cpp build (CUDA)
+
+```bash
+cd ~/llama.cpp
+mkdir -p build
+cd build
+
+cmake .. \
+  -DGGML_CUDA=ON \
+  -DGGML_CUDA_ARCH=61 \
+  -DGGML_BLAS=ON \
+  -DGGML_BLAS_VENDOR=OpenBLAS \
+  -DGGML_FLASH_ATTENTION=OFF \
+  -DCMAKE_BUILD_TYPE=Release
+
+make -j$(nproc)
+```
+
+Notes:
+- Arch 61 = Tesla P40
+- Flash attention disabled (stability/perf quirks observed on some setups)
+
+---
+
+<br />
+
+### Model selection
+
+**Chosen:** bartowski/Qwen2.5-32B-Instruct-GGUF:IQ4_XS
+
+Rationale:
+- Stronger "default assistant" than GLM Flash
+- Fits in P40 VRAM with reasonable ctx
+- IQ4_XS balances quality/size
+
+---
+
+<br />
+
+### Download strategy (reliability)
+
+Use resumable download:
+```bash
+cd ~/llm/models/Qwen2.5-32B
+wget -c https://huggingface.co/bartowski/Qwen2.5-32B-Instruct-GGUF/resolve/main/Qwen2.5-32B-Instruct-IQ4_XS.gguf
+```
+
+Gotchas:
+- Mid-download failures leave large temp caches (e.g. `~/llm/models/Qwen2.5-32B/.cache`).
+- Disk full errors can show as weird wget message ("Cannot write ... (Success)").
+- Clean up old `.cache` or unused model dirs.
+
+Verify file:
+```bash
+ls -lh ~/llm/models/Qwen2.5-32B/Qwen2.5-32B-Instruct-IQ4_XS.gguf
+```
+
+---
+
+<br />
+
+### llama-server: Qwen on port 10001
+
+Important: Qwen instruct needs correct chat formatting. Fix: run server with `--chat-template chatml`.
+
+Also: Open WebUI container access is easiest if llama-server binds to docker0 IP.
+
+Get docker0 IP:
+```bash
+ip -4 addr show docker0 | awk '/inet /{print $2}' | cut -d/ -f1
+# usually 172.17.0.1
+```
+
+Start server (manual):
+```bash
+nohup ~/llama.cpp/build/bin/llama-server \
+  -m ~/llm/models/Qwen2.5-32B/Qwen2.5-32B-Instruct-IQ4_XS.gguf \
+  --host 172.17.0.1 --port 10001 \
+  --chat-template chatml \
+  --n-gpu-layers -1 --ctx-size 8192 \
+  --temp 0.6 --top-p 0.9 --top-k 40 \
+  --repeat-penalty 1.10 --dry-multiplier 0.8 \
+  > ~/llm/logs/llama-qwen.log 2>&1 &
+echo $! > ~/llm/logs/llama-qwen.pid
+```
+
+Verify:
+```bash
+ss -tlnp | grep 10001
+curl -s http://127.0.0.1:10001/v1/models | head
+```
+
+---
+
+<br />
+
+### Qwen server scripts (recommended)
+
+**`/usr/local/sbin/qwen-start`**
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+MODEL="${MODEL:-/home/kudakuda/llm/models/Qwen2.5-32B/Qwen2.5-32B-Instruct-IQ4_XS.gguf}"
+PORT="${PORT:-10001}"
+CTX="${CTX:-8192}"
+
+LOGDIR="/home/kudakuda/llm/logs"
+mkdir -p "$LOGDIR"
+
+DOCKER0_IP="$(ip -4 addr show docker0 | awk '/inet /{print $2}' | cut -d/ -f1)"
+PIDFILE="$LOGDIR/llama-qwen.pid"
+LOGFILE="$LOGDIR/llama-qwen.log"
+
+if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+  echo "[=] Qwen already running (pid $(cat "$PIDFILE"))"
+  exit 0
+fi
+
+nohup /home/kudakuda/llama.cpp/build/bin/llama-server \
+  -m "$MODEL" \
+  --host "$DOCKER0_IP" --port "$PORT" \
+  --chat-template chatml \
+  --n-gpu-layers -1 --ctx-size "$CTX" \
+  --temp 0.6 --top-p 0.9 --top-k 40 \
+  --repeat-penalty 1.10 --dry-multiplier 0.8 \
+  > "$LOGFILE" 2>&1 &
+
+echo $! > "$PIDFILE"
+echo "[+] Qwen started on http://$DOCKER0_IP:$PORT (pid $(cat "$PIDFILE"))"
+```
+
+<br />
+
+**`/usr/local/sbin/qwen-stop`**
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+PIDFILE="/home/kudakuda/llm/logs/llama-qwen.pid"
+
+if [ ! -f "$PIDFILE" ]; then
+  echo "[=] No PID file; Qwen not running?"
+  exit 0
+fi
+
+PID="$(cat "$PIDFILE")"
+if kill -0 "$PID" 2>/dev/null; then
+  kill "$PID"
+  echo "[-] Sent SIGTERM to Qwen (pid $PID)"
+else
+  echo "[=] PID not running; cleaning PID file"
+fi
+
+rm -f "$PIDFILE"
+```
+
+<br />
+
+**`/usr/local/sbin/qwen-status`**
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+PIDFILE="/home/kudakuda/llm/logs/llama-qwen.pid"
+PORT="${PORT:-10001}"
+
+DOCKER0_IP="$(ip -4 addr show docker0 | awk '/inet /{print $2}' | cut -d/ -f1)"
+
+if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+  echo "[+] Qwen running (pid $(cat "$PIDFILE"))"
+  echo "    API: http://$DOCKER0_IP:$PORT/v1/models"
+else
+  echo "[-] Qwen not running"
+fi
+```
+
+Install:
+```bash
+sudo tee /usr/local/sbin/qwen-start  >/dev/null < qwen-start
+sudo tee /usr/local/sbin/qwen-stop   >/dev/null < qwen-stop
+sudo tee /usr/local/sbin/qwen-status >/dev/null < qwen-status
+sudo chmod +x /usr/local/sbin/qwen-start /usr/local/sbin/qwen-stop /usr/local/sbin/qwen-status
+```
+
+Usage: `sudo qwen-start` / `sudo qwen-status` / `sudo qwen-stop`
+
+---
+
+<br />
+
+### Open WebUI (Docker)
+
+Container observed:
+- **open-webui** running as Docker container
+- bound to host loopback: **127.0.0.1:3000** → container 8080
+
+Check:
+```bash
+docker ps | grep open-webui
+ss -tlnp | grep 3000
+```
+
+Open WebUI access from Mac — SSH tunnel to CUDA VM (often via bastion):
+```bash
+ssh -N -L 3000:127.0.0.1:3000 -J netman@10.13.235.50 kudakuda@192.168.100.100
+```
+
+Browse on Mac: `http://localhost:3000`
+
+---
+
+<br />
+
+### Open WebUI provider wiring
+
+Because Open WebUI is in Docker, easiest is docker0 binding:
+- **llama-server URL:** `http://172.17.0.1:10001/v1` (or docker0 IP)
+- Add as OpenAI-compatible provider/base URL inside Open WebUI.
+
+Container-side test:
+```bash
+docker exec -it open-webui sh -lc 'python - <<PY
+import urllib.request
+print(urllib.request.urlopen("http://172.17.0.1:10001/v1/models", timeout=5).read()[:200])
+PY'
+```
+
+---
+
+<br />
+
+### Smoke tests
+
+- **Deterministic:** "How many r are in strawberry? Reply with only the number." (expected 3)
+- **Basic reasoning + stability:** short structured responses, no repetition loops (DRY helps)
+
+---
+
+<br />
+
+### Notes / gotchas
+
+- Running Qwen without correct chat template can cause "stupid" outputs. `--chat-template chatml` fixed instruction-following behavior.
+- Prefer local-only bindings; avoid exposing llama-server directly to apartment LAN.

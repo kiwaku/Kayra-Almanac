@@ -1,0 +1,316 @@
+---
+title: "GLM-4.7 + Tesla P40 + llama.cpp: First LLM on Hephaestus"
+date: "2026-01-26"
+tags: ["hardware", "hephaestus", "cuda", "llm", "llama.cpp", "p40"]
+project: hephaestus
+images: []
+anomaly: false
+---
+
+Getting GLM-4.7 (GGUF, IQ4_NL) running via llama.cpp on a Tesla P40. CUDA PTX mismatch, disk expansion, model download, and stable inference flags.
+
+<br />
+
+### GPU sanity check
+
+```bash
+nvidia-smi
+```
+
+---
+
+<br />
+
+### System dependencies (build + BLAS)
+
+```bash
+sudo apt update
+sudo apt install -y git cmake build-essential python3 python3-venv python3-pip libopenblas-dev
+```
+
+---
+
+<br />
+
+### Clone llama.cpp
+
+```bash
+cd ~
+git clone https://github.com/ggerganov/llama.cpp
+cd llama.cpp
+git log -1
+```
+
+---
+
+<br />
+
+### First build attempt (CUDA + Pascal arch)
+
+> Note: This build succeeded, but later hit a runtime PTX/toolchain mismatch on P40 (fixed in section 9).
+
+```bash
+cd ~/llama.cpp
+mkdir build
+cd build
+
+cmake .. \
+  -DGGML_CUDA=ON \
+  -DGGML_CUDA_ARCH=61 \
+  -DGGML_BLAS=ON \
+  -DGGML_BLAS_VENDOR=OpenBLAS \
+  -DGGML_FLASH_ATTENTION=OFF \
+  -DCMAKE_BUILD_TYPE=Release
+
+make -j$(nproc)
+```
+
+Verify binaries exist:
+```bash
+ls ~/llama.cpp/build/bin | egrep 'llama-(cli|server)'
+```
+
+---
+
+<br />
+
+### Hugging Face access (gated downloads) + PATH fix
+
+Installed HF tooling (pip installs scripts under `~/.local/bin` by default):
+```bash
+pip install --upgrade huggingface_hub
+```
+
+Fix PATH for current session (and optionally persist in `~/.bashrc`):
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+# optional persistence:
+# echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+# source ~/.bashrc
+```
+
+Login (token-based):
+```bash
+hf auth login --token hf_XXXXXXXXXXXXXXXXXXXXXXXX
+hf auth whoami
+```
+
+---
+
+<br />
+
+### Find exact GGUF filenames in the repo (no guessing)
+
+```python
+from huggingface_hub import list_repo_files
+repo="DavidAU/GLM-4.7-Flash-Uncensored-Heretic-NEO-CODE-Imatrix-MAX-GGUF"
+for f in list_repo_files(repo):
+    if f.lower().endswith(".gguf"):
+        print(f)
+```
+
+Expected file list includes (examples):
+- `...IQ4_NL.gguf`
+- `...Q4_K_M.gguf`
+
+---
+
+<br />
+
+### Disk space failure + fix (LVM not expanded)
+
+Symptom during download: only ~9 GB free on `/`, but GGUF needs ~18+ GB.
+
+Check mounts/filesystems:
+```bash
+df -hT
+lsblk -f
+sudo fdisk -l | sed -n '1,120p'
+sudo du -xh / --max-depth=1 2>/dev/null | sort -h
+```
+
+Root cause:
+- Virtual disk was 64 GB, but root LV was ~30 GB: `/dev/mapper/ubuntu--vg-ubuntu--lv`
+
+Fix: expand partition (idempotent), PV, LV, then filesystem:
+```bash
+sudo apt install -y cloud-guest-utils lvm2
+
+sudo growpart /dev/sda 3
+sudo pvresize /dev/sda3
+sudo lvextend -l +100%FREE /dev/ubuntu-vg/ubuntu-lv
+sudo resize2fs /dev/ubuntu-vg/ubuntu-lv
+```
+
+Verify:
+```bash
+df -h /
+sudo vgs
+sudo lvs
+```
+
+---
+
+<br />
+
+### Download the model to a stable local directory
+
+Create model directory:
+```bash
+mkdir -p ~/llm/models/GLM-4.7
+cd ~/llm/models/GLM-4.7
+```
+
+Download (example: IQ4_NL recommended for quality-per-GB; Q4_K_M is also viable):
+```bash
+hf download \
+  DavidAU/GLM-4.7-Flash-Uncensored-Heretic-NEO-CODE-Imatrix-MAX-GGUF \
+  GLM-4.7-Flash-Uncen-Hrt-NEO-CODE-MAX-imat-D_AU-IQ4_NL.gguf \
+  --local-dir .
+```
+
+Verify size:
+```bash
+ls -lh
+```
+
+---
+
+<br />
+
+### SSH enablement (for better workflow)
+
+```bash
+sudo apt update
+sudo apt install -y openssh-server
+sudo systemctl enable --now ssh
+systemctl status ssh --no-pager
+sudo ss -tlnp | grep :22 || true
+```
+
+From macOS client:
+```bash
+ssh kudakuda@<VM_IP>
+```
+
+---
+
+<br />
+
+### CUDA runtime crash fix (Pascal PTX/toolchain mismatch)
+
+Symptom at runtime:
+- `CUDA error: the provided PTX was compiled with an unsupported toolchain.`
+- occurs on Tesla P40 (Pascal, SM 6.1) with too-new CUDA toolchain / PTX.
+
+Fix approach:
+- Install CUDA 11.8 toolkit
+- Force llama.cpp to compile SASS for `sm_61` using CUDA 11.8 nvcc
+- Clean rebuild
+
+Install CUDA 11.8 toolkit:
+```bash
+sudo apt update
+sudo apt install -y cuda-toolkit-11-8
+/usr/local/cuda-11.8/bin/nvcc --version
+```
+
+Set CUDA 11.8 environment (current shell):
+```bash
+export CUDA_HOME=/usr/local/cuda-11.8
+export PATH=$CUDA_HOME/bin:$PATH
+export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+```
+
+Clean rebuild llama.cpp:
+```bash
+cd ~/llama.cpp
+rm -rf build
+mkdir build
+cd build
+
+cmake .. \
+  -DGGML_CUDA=ON \
+  -DCMAKE_CUDA_COMPILER=/usr/local/cuda-11.8/bin/nvcc \
+  -DCMAKE_CUDA_ARCHITECTURES=61 \
+  -DGGML_FLASH_ATTENTION=OFF \
+  -DGGML_BLAS=ON \
+  -DGGML_BLAS_VENDOR=OpenBLAS \
+  -DCMAKE_BUILD_TYPE=Release
+
+make -j$(nproc)
+```
+
+---
+
+<br />
+
+### Run the model (recommended stable flags)
+
+```bash
+cd ~/llama.cpp
+
+./build/bin/llama-cli \
+  -m ~/llm/models/GLM-4.7/GLM-4.7-Flash-Uncen-Hrt-NEO-CODE-MAX-imat-D_AU-IQ4_NL.gguf \
+  -p "Smoke test: explain what you are in two sentences." \
+  -n 4096 \
+  --n-gpu-layers -1 \
+  --ctx-size 8192 \
+  --temp 0.6 \
+  --top-p 0.6 \
+  --top-k 2 \
+  --repeat-penalty 1.12 \
+  --threads $(nproc)
+```
+
+Notes:
+- `--ctx-size 8192` used as a safe starting point on 24 GB VRAM.
+- Lower `--temp` + constrained `top-p/top-k` reduces "looping/self-polish".
+- Raise `-n` (max tokens) after stability is confirmed.
+
+---
+
+<br />
+
+### REPL usability (single-line base prompt)
+
+Because the interactive REPL treats newlines as separate submits, a one-liner "base prompt" was used to stabilize behavior:
+
+```text
+You are a precise technical assistant; English only; do not reveal chain-of-thought; avoid self-analysis and repetition; if ambiguous ask at most one clarifying question otherwise assume and proceed; answer once and stop.
+```
+
+Apply once per session after `/clear`.
+
+---
+
+<br />
+
+### Troubleshooting quick hits
+
+Check GPU usage while running:
+```bash
+nvidia-smi
+```
+
+If OOM / too tight — reduce context first:
+```bash
+--ctx-size 6144
+```
+
+If repetition:
+```bash
+--repeat-penalty 1.12
+```
+
+---
+
+<br />
+
+### Optional next step: llama-server + SSH tunnel for macOS app
+
+```bash
+./build/bin/llama-server -m /path/to/model.gguf --host 127.0.0.1 --port 10000 ...
+# mac:
+ssh -N -L 10000:127.0.0.1:10000 kudakuda@<VM_IP>
+```

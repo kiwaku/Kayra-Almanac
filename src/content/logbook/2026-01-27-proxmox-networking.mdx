@@ -1,0 +1,148 @@
+---
+title: "Proxmox Host Networking: vmbr0/vmbr1/vmbr2 Setup"
+date: "2026-01-27"
+tags: ["hardware", "hephaestus", "proxmox", "networking", "interfaces"]
+project: hephaestus
+images: []
+anomaly: false
+---
+
+Configuring the three-bridge layout on the Proxmox host — WAN uplink, lab switch, and internal-only VM network.
+
+<br />
+
+### Goal
+
+- **vmbr0** = apartment LAN/WAN uplink (nic0)
+- **vmbr1** = physical lab switch bridge (nic1 → GS105E)
+- **vmbr2** = internal-only VM network (no physical NIC)
+
+---
+
+<br />
+
+### Final `/etc/network/interfaces`
+
+Saved as working baseline:
+
+```ini
+auto lo
+iface lo inet loopback
+
+# WAN interface (apartment network uplink)
+iface nic0 inet manual
+
+auto vmbr0
+iface vmbr0 inet static
+    address 10.13.235.35/24
+    gateway 10.13.235.254
+    bridge-ports nic0
+    bridge-stp off
+    bridge-fd 0
+
+# Lab interface (I350 port1 to GS105E)
+iface nic1 inet manual
+
+auto vmbr1
+iface vmbr1 inet manual
+    bridge-ports nic1
+    bridge-stp off
+    bridge-fd 0
+
+# Internal bridge for VM-to-VM (no physical NIC)
+auto vmbr2
+iface vmbr2 inet static
+    address 192.168.100.1/24
+    bridge-ports none
+    bridge-stp off
+    bridge-fd 0
+
+# Other I350 ports (unused)
+iface nic2 inet manual
+iface nic3 inet manual
+iface nic4 inet manual
+
+# Realtek (unused)
+iface enp8s0 inet manual
+iface enp8s0d1 inet manual
+
+source /etc/network/interfaces.d/*
+```
+
+---
+
+<br />
+
+### Apply / Reload Method
+
+We used ifupdown2. Recommended safe apply sequence:
+
+```bash
+cp /etc/network/interfaces /etc/network/interfaces.bak.$(date +%F-%H%M)
+# edit file
+ifreload -a
+```
+
+Avoid restarting networking blindly over SSH.
+
+---
+
+<br />
+
+### Verification Commands
+
+Check bridges + ports:
+```bash
+brctl show
+ip addr show
+ip route
+```
+
+Expected:
+- vmbr0 has host WAN IP + default route
+- vmbr1 exists and has no IP (manual)
+- vmbr2 has 192.168.100.1/24
+
+Confirm which physical NIC is actually linked — carrier bit (best quick truth):
+```bash
+for i in nic0 nic1 nic2 nic3 nic4 enp8s0 enp8s0d1; do
+  [ -e /sys/class/net/$i/carrier ] && echo -n "$i: " && cat /sys/class/net/$i/carrier
+done
+```
+
+- `1` = link detected
+- `0` = no link / wrong port / cable / switch
+
+Bring a NIC up for linkage testing (no IP):
+```bash
+ip link set nic1 up
+cat /sys/class/net/nic1/carrier
+```
+
+---
+
+<br />
+
+### Observations / Gotchas
+
+**"Why is nic0 UP while enp* DOWN?"**
+- Proxmox names and uses nicX.
+- Only the bridge slave used by vmbr0 gets brought UP automatically.
+- Unused physical NICs remain DOWN (normal).
+
+**ethtool --identify didn't blink LEDs**
+- Many NICs/drivers do not support identify via ethtool.
+- Reliable method: unplug/replug + watch carrier.
+
+**vmbr2 intent**
+- vmbr2 is host-internal L2 switch (no physical uplink).
+- Internal VMs on vmbr2 should not have a default gateway by default.
+- Bastion is the only dual-homed VM.
+
+---
+
+<br />
+
+### Snapshot Point
+
+Once vmbr0/vmbr1/vmbr2 stabilized, treat host networking as "do not touch" unless needed.

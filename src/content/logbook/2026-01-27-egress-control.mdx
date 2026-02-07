@@ -1,0 +1,211 @@
+---
+title: "Controlled Egress Scripts: Bastion NAT + CUDA Route/DNS"
+date: "2026-01-27"
+tags: ["hardware", "hephaestus", "networking", "iptables", "nat", "scripts"]
+project: hephaestus
+images: []
+anomaly: false
+---
+
+Making "maintenance internet" a boring on/off switch. Bastion NAT scripts + CUDA route/DNS toggle + one-liners.
+
+<br />
+
+### Design
+
+- **Default:** CUDA VM has no default route, no DNS changes, no internet.
+- **Maintenance:**
+  1. Enable NAT on bastion (vmbr2 → vmbr0)
+  2. Add default route + DNS on CUDA VM (temporary)
+  3. Download/update
+  4. Revert CUDA route/DNS
+  5. Disable NAT on bastion
+
+---
+
+<br />
+
+### Bastion scripts
+
+**`/usr/local/sbin/egress-on`** (bastion)
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+WAN_IF="${WAN_IF:-ens18}"          # bastion external interface
+LAN_NET="${LAN_NET:-192.168.100.0/24}"
+
+sysctl -w net.ipv4.ip_forward=1 >/dev/null
+
+iptables -t nat -C POSTROUTING -s "$LAN_NET" -o "$WAN_IF" -j MASQUERADE 2>/dev/null || \
+iptables -t nat -A POSTROUTING -s "$LAN_NET" -o "$WAN_IF" -j MASQUERADE
+
+iptables -C FORWARD -s "$LAN_NET" -j ACCEPT 2>/dev/null || iptables -A FORWARD -s "$LAN_NET" -j ACCEPT
+iptables -C FORWARD -d "$LAN_NET" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || \
+iptables -A FORWARD -d "$LAN_NET" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+echo "[+] Bastion egress enabled (NAT) for $LAN_NET via $WAN_IF"
+```
+
+Install:
+```bash
+sudo tee /usr/local/sbin/egress-on >/dev/null < egress-on
+sudo chmod +x /usr/local/sbin/egress-on
+```
+
+<br />
+
+**`/usr/local/sbin/egress-off`** (bastion)
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+WAN_IF="${WAN_IF:-ens18}"
+LAN_NET="${LAN_NET:-192.168.100.0/24}"
+
+iptables -t nat -D POSTROUTING -s "$LAN_NET" -o "$WAN_IF" -j MASQUERADE 2>/dev/null || true
+iptables -D FORWARD -s "$LAN_NET" -j ACCEPT 2>/dev/null || true
+iptables -D FORWARD -d "$LAN_NET" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
+
+sysctl -w net.ipv4.ip_forward=0 >/dev/null
+
+echo "[-] Bastion egress disabled"
+```
+
+Install:
+```bash
+sudo tee /usr/local/sbin/egress-off >/dev/null < egress-off
+sudo chmod +x /usr/local/sbin/egress-off
+```
+
+Usage: `sudo egress-on` / `sudo egress-off`
+
+---
+
+<br />
+
+### CUDA VM scripts
+
+**`/usr/local/sbin/egress-on`** (cuda)
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+GW="${GW:-192.168.100.10}"         # bastion internal IP
+IFACE="${IFACE:-enp6s18}"          # cuda internal iface
+
+mkdir -p /var/lib/lab-egress
+ip route show default > /var/lib/lab-egress/default.route 2>/dev/null || true
+
+if [ -e /etc/resolv.conf ] && [ ! -e /var/lib/lab-egress/resolv.conf.bak ]; then
+  cp -a /etc/resolv.conf /var/lib/lab-egress/resolv.conf.bak || true
+fi
+
+ip route replace default via "$GW"
+
+if command -v resolvectl >/dev/null 2>&1 && systemctl is-active systemd-resolved >/dev/null 2>&1; then
+  resolvectl dns "$IFACE" 1.1.1.1 8.8.8.8
+  resolvectl domain "$IFACE" "~."
+else
+  rm -f /etc/resolv.conf
+  printf "nameserver 1.1.1.1\nnameserver 8.8.8.8\n" > /etc/resolv.conf
+fi
+
+echo "[+] CUDA egress enabled (default via $GW; DNS set)"
+```
+
+<br />
+
+**`/usr/local/sbin/egress-off`** (cuda)
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+GW="${GW:-192.168.100.10}"
+IFACE="${IFACE:-enp6s18}"
+
+mkdir -p /var/lib/lab-egress
+
+ip route del default via "$GW" 2>/dev/null || true
+
+if [ -s /var/lib/lab-egress/default.route ]; then
+  ip route add $(cat /var/lib/lab-egress/default.route | head -n 1 | sed 's/^default //') 2>/dev/null || true
+fi
+
+if command -v resolvectl >/dev/null 2>&1 && systemctl is-active systemd-resolved >/dev/null 2>&1; then
+  resolvectl revert "$IFACE" 2>/dev/null || true
+fi
+
+if [ -e /var/lib/lab-egress/resolv.conf.bak ]; then
+  rm -f /etc/resolv.conf
+  cp -a /var/lib/lab-egress/resolv.conf.bak /etc/resolv.conf || true
+fi
+
+echo "[-] CUDA egress disabled (route/DNS restored as possible)"
+```
+
+Install on CUDA:
+```bash
+sudo tee /usr/local/sbin/egress-on  >/dev/null < egress-on
+sudo tee /usr/local/sbin/egress-off >/dev/null < egress-off
+sudo chmod +x /usr/local/sbin/egress-on /usr/local/sbin/egress-off
+```
+
+Usage: `sudo egress-on` / `sudo egress-off`
+
+---
+
+<br />
+
+### Bastion one-liners to toggle CUDA remotely
+
+Assumes SSH keys: bastion → cuda works.
+
+Enable egress (from bastion):
+```bash
+sudo egress-on && ssh -t kudakuda@192.168.100.100 'sudo /usr/local/sbin/egress-on'
+```
+
+Disable egress (from bastion):
+```bash
+ssh -t kudakuda@192.168.100.100 'sudo /usr/local/sbin/egress-off' && sudo egress-off
+```
+
+Optional convenience functions (bastion `~/.bashrc`):
+```bash
+lab-egress-on()  { sudo egress-on && ssh -t kudakuda@192.168.100.100 'sudo /usr/local/sbin/egress-on'; }
+lab-egress-off() { ssh -t kudakuda@192.168.100.100 'sudo /usr/local/sbin/egress-off' && sudo egress-off; }
+```
+
+---
+
+<br />
+
+### Verification
+
+On CUDA after egress-on:
+```bash
+ip route | head
+ping -c 1 1.1.1.1
+getent hosts huggingface.co | head -n 1
+```
+
+After egress-off:
+```bash
+ip route | head
+# should have no default route
+```
+
+---
+
+<br />
+
+### Notes
+
+- Default state is "no ambient internet".
+- Prefer downloading huge GGUFs on bastion + scp/rsync to CUDA if needed.
+- Do not leave egress enabled permanently.

@@ -1,0 +1,167 @@
+---
+title: "Lab Topology Baseline: Bridges, IP Plan, Access Model"
+date: "2026-01-27"
+tags: ["hardware", "hephaestus", "networking", "proxmox", "topology"]
+project: hephaestus
+images: []
+anomaly: false
+---
+
+Secure-ish lab spine for local LLM + attacker/victim VMs with clean isolation and easy access.
+
+<br />
+
+### TL;DR
+
+- Proxmox host has 3 bridges:
+  - **vmbr0** = apartment LAN / WAN uplink
+  - **vmbr1** = physical lab switch bridge (GS105E) for later
+  - **vmbr2** = internal-only lab network (no physical NIC)
+- Bastion VM is the ONLY dual-homed machine (vmbr0 + vmbr2).
+- CUDA VM (LLM box) lives on vmbr2 only (no default route by default).
+- Maintenance egress is temporary (NAT on bastion + temporary route/DNS on CUDA), then reverted.
+
+---
+
+<br />
+
+### Components & Roles
+
+- **Proxmox Host ("hephaestus"):** hypervisor + bridges
+- **Bastion VM (Debian 12):** entry point + jump host + optional temporary NAT for maintenance
+- **CUDA VM (Ubuntu 22.04):** llama.cpp + Open WebUI + Tesla P40 passthrough
+- **Future:**
+  - Attacker VM (Kali): vmbr2 only
+  - Victim VMs (Debian/Ubuntu/Alpine/OpenBSD): vmbr2 only
+  - Optional: monitoring/pcap VM or SPAN via vmbr1 + GS105E
+
+---
+
+<br />
+
+### Bridges (Network Plan)
+
+**vmbr0 (WAN / Apartment network)**
+- Connected to physical uplink nic0.
+- Used by: Bastion external NIC, Proxmox management (host IP).
+- Should be the only bridge that touches apartment LAN.
+
+**vmbr1 (Lab switch bridge)**
+- Connected to physical nic1 (I350 port1 → GS105E).
+- L2 only (no host IP required).
+- Used for future physical lab / port mirroring tests.
+
+**vmbr2 (Internal-only / VM-to-VM)**
+- No physical NIC (`bridge-ports none`).
+- Host has IP: 192.168.100.1/24
+- Used by: Bastion internal NIC, CUDA VM NIC, Attacker + Victim VMs.
+
+---
+
+<br />
+
+### IP Plan (vmbr2)
+
+Subnet: **192.168.100.0/24**
+
+| Role | IP |
+|------|----|
+| Proxmox host (vmbr2) | 192.168.100.1 |
+| Bastion internal NIC | 192.168.100.10 |
+| CUDA VM | 192.168.100.100 |
+| Kali attacker (future) | 192.168.100.20 |
+| Victim Ubuntu (future) | 192.168.100.30 |
+| Victim Debian oldstable (future) | 192.168.100.31 |
+| Victim Alpine (future) | 192.168.100.32 |
+
+Notes:
+- No gateway is configured on internal VMs by default.
+- Any internet access is explicitly turned on temporarily.
+
+---
+
+<br />
+
+### VM Inventory (current)
+
+**Bastion (Debian 12)**
+- External NIC (vmbr0): static 10.13.235.50/24, GW 10.13.235.254
+- Internal NIC (vmbr2): static 192.168.100.10/24
+- Purpose: SSH jump host + controlled maintenance egress (NAT on demand)
+
+**CUDA VM (Ubuntu 22.04)**
+- Internal NIC (vmbr2): enp6s18 static 192.168.100.100/24
+- No default route normally.
+- Runs: llama.cpp (llama-server), Open WebUI (Docker, bound to 127.0.0.1:3000 on host), Tesla P40 passthrough
+
+---
+
+<br />
+
+### Access Model (How I reach things)
+
+**Normal workflow (secure default):**
+Mac → SSH → Bastion (vmbr0) → SSH → internal VMs (vmbr2)
+
+Example:
+- `ssh bastion`
+- `ssh cudavm` (via ProxyJump)
+
+Open WebUI access: Mac uses SSH tunnel to Bastion/CUDA and browses localhost.
+
+---
+
+<br />
+
+### Maintenance Egress Policy (controlled internet)
+
+**Default state:**
+- CUDA VM has NO internet (no default route + no DNS)
+- Bastion is NOT routing (ip_forward off, no NAT rules)
+
+**Maintenance window (only when needed):**
+1. Enable NAT on bastion (vmbr2 → vmbr0)
+2. Add default route + DNS temporarily on CUDA VM
+3. Do downloads/apt
+4. Disable route/DNS on CUDA VM
+5. Disable NAT/forwarding on bastion
+
+Goal: keep "ambient internet" off the GPU box.
+
+---
+
+<br />
+
+### Quick Sanity Checks
+
+On Proxmox host:
+```bash
+ip a
+brctl show
+ip route
+```
+
+On Bastion:
+```bash
+ip a
+ip route
+ss -tlnp | grep :22
+```
+
+On CUDA VM:
+```bash
+ip a
+ip route          # should NOT show default route normally
+ss -tlnp | grep 10001   # llama-server
+ss -tlnp | grep 3000    # Open WebUI host binding
+```
+
+---
+
+<br />
+
+### Notes / Gotchas
+
+- Avoid putting CUDA VM on vmbr0 permanently.
+- Prefer downloading huge models on bastion + scp/rsync to CUDA if egress becomes annoying.
+- Docker container cannot always resolve `host.docker.internal` on Linux; binding llama-server to docker0 IP (172.17.0.1) is simplest for Open WebUI container access.

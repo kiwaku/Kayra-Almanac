@@ -1,0 +1,159 @@
+---
+title: "M.2→PCIe Adapter Saga: Mining Riser x1 Dead-End & ADT-Link Pivot"
+date: "2026-02-03"
+tags: ["hardware", "hephaestus", "pcie", "infiniband", "connectx-3", "adapter"]
+project: hephaestus
+images: []
+anomaly: false
+---
+
+ConnectX-3 Pro stuck at Gen2 x1 behind mining risers. Diagnosing the lane problem, confirming the adapter class is wrong, pivoting to ADT-Link, and hitting the power question.
+
+<br />
+
+### Baseline: platform PCIe topology
+
+```bash
+lspci -nnD | egrep "00:1c\.[0-9]|Root Port"
+```
+
+- `0000:00:01.0` / `00:02.0` / `00:03.0` = CPU root ports (Intel 8086:2f02/2f04/2f08)
+- `0000:00:1c.0` / `1c.2` / `1c.3` / `1c.4` = PCH (C610/X99) downstream root ports (8086:8d10/8d14/8d16/8d18)
+
+CPU PCIe lanes = high bandwidth (GPUs). PCH lanes = shared behind chipset, often x1–x4. The HCAs were ending up behind PCH ports, especially `00:1c.4`.
+
+---
+
+<br />
+
+### dmesg confirms Mellanox enumerates — but link is crippled
+
+```bash
+dmesg -T | grep -iE "15b3|mellanox|mlx|pcie|aer|link|train|timeout" | tail -n 200
+```
+
+Key lines:
+- `pci 0000:08:00.0: [15b3:1007] ...`
+- `pci 0000:08:00.0: 4.000 Gb/s available PCIe bandwidth, limited by 5.0 GT/s PCIe x1 link at 0000:00:1c.4 (capable of ... with 8.0 GT/s PCIe x8 link)`
+- `mlx4_core: Initializing 0000:08:00.0`
+- `mlx4_en ... Activating port:1/2`
+
+HCA recognized, drivers load fine (mlx4_core, mlx4_en, mlx4_ib). But PCIe negotiation is wrong: running at **Gen2 x1** (5GT/s x1) even though the device can do Gen3 x8. Points to the adapter/link, not drivers.
+
+---
+
+<br />
+
+### Direct confirmation: PCIe capability vs status
+
+```bash
+sudo lspci -s 08:00.0 -vv | egrep -i "LnkCap|LnkSta"
+```
+
+- **LnkCap:** Speed 8GT/s, Width x8
+- **LnkSta:** Speed 5GT/s (downgraded), Width x1 (downgraded)
+
+Card can do Gen3 x8, platform only managed Gen2 x1. Classic for mining risers / x1-to-x16 USB risers: the physical x16 slot is fake; electrically it's x1.
+
+---
+
+<br />
+
+### Power wiring constraint
+
+Using mining-style M.2→x16 risers powered by 6-pin, daisy-chaining them. Previously daisy-chaining two HCAs on a single power lead.
+
+Even if the link-width problem is signal-lanes, daisy-chaining can cause:
+- Unstable link training
+- Undervoltage on 12V during reset/training
+- Random "sometimes works, sometimes x0/x1" behavior
+
+But the key symptom is consistent with riser design itself (x1 electrical), not only power.
+
+---
+
+<br />
+
+### Swapping M.2 ports — still x1
+
+```bash
+lspci -nnD | grep -i 15b3 || echo "NO MELLANOX ENUMERATED"
+```
+
+```bash
+DEV=$(lspci -nnD | awk '/15b3:/{print $1; exit}')
+sudo lspci -s "$DEV" -vv | egrep -i "LnkCap|LnkSta|DevSta|AER"
+```
+
+- **DevSta:** CorrErr- NonFatalErr- FatalErr- (no errors)
+- **LnkCap:** 8GT/s x8
+- **LnkSta:** 5GT/s x1 (downgraded)
+
+Card is stable enough to enumerate, no PCIe device errors, but link remains Gen2 x1. Swapping M.2 ports did not fix the core limitation.
+
+---
+
+<br />
+
+### Upstream root port: 00:1c.4 is x4-capable but negotiating x1
+
+```bash
+sudo lspci -s 00:1c.4 -vv | egrep -i "LnkCap|LnkSta|Width|Speed"
+```
+
+- **LnkCap:** Speed 5GT/s, Width x4
+- **LnkSta:** Speed 5GT/s, Width x1
+
+PCH root port can do Gen2 x4, only negotiating x1 downstream. Matches "adapter only presents x1 lanes" or M.2 slot wired x1 on this board. The adapter product description confirms it: ver006c, USB 3.0 cable, "pci-e 1x pci-e 16x", "bitcoin mining専用" — it's an x1 extender. The x16 slot is physical convenience only.
+
+---
+
+<br />
+
+### Pivot: ADT-Link R43SG / M43SG / K43SG
+
+The correct adapter class for real lanes from NVMe M.2:
+
+- **R43SG / R43SG-TU** = PCIe 3.0 x4
+- **M43SG / K43SG / R43SG4.0** = PCIe 4.0 x4 (still x4 electrically)
+- M.2 NVMe only, eGPU adapter class
+- Power options: Dell DA-2 (D220P-01 / ADP-220AB) 12V 18A 220W, or ATX 500W+
+
+This actually routes up to x4 lanes from an NVMe M.2 slot. Not a $5 riser — it's a purpose-built interposer with signal-integrity requirements (~$60).
+
+---
+
+<br />
+
+### New adapter arrives — power blocker
+
+The ADT-Link board only includes a GPU split 6-pin cable. Must buy either:
+- **24-pin ATX cable** (feed the board's ATX headers)
+- **Dell DA-2 brick** (feed the DA-2 input)
+
+The board is basically an "eGPU dock PCB" — expects a standalone power source. Without that, it can't reliably bring up the slot device.
+
+Two mainstream power methods:
+1. **ATX PSU method:** 24-pin + 4-pin CPU into the ADT board (messy with existing PSU — Corsair HX1000i has one 24-pin harness already in use)
+2. **Dell DA-2 brick method:** clean, quiet, common for eGPU setups
+
+---
+
+<br />
+
+### Decision: Dell DA-2 brick
+
+Preferred route — DELL 220W AC adapter, 12V 18A, D220P-01 / DA-2 Series. Matches the ADT-Link documentation exactly. Avoids the ATX cable mess and PSU sharing issues.
+
+---
+
+<br />
+
+### Current state
+
+- **Old mining risers** = always x1 behavior; logs proved it definitively.
+- **ADT-Link R43SG/M43SG** = correct hardware for real x4 lanes from NVMe M.2.
+- **Blocker:** power supply choice. Dell DA-2 brick ordered.
+- **Next step:** DA-2 arrives → power the ADT board → re-run `lspci -vv` link-state checks → confirm x4 instead of x1.
+
+The PCIe link problem was never Linux or drivers — it was the mining-riser hardware class.

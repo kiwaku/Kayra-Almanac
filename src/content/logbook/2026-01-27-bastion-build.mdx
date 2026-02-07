@@ -1,0 +1,178 @@
+---
+title: "Bastion VM Build (Debian 12): SSH Jump Host on vmbr0 + vmbr2"
+date: "2026-01-27"
+tags: ["hardware", "hephaestus", "proxmox", "bastion", "ssh", "debian"]
+project: hephaestus
+images: []
+anomaly: false
+---
+
+VM creation, accidental GUI install, sudo recovery, SSH hardening, and dual-NIC setup for the bastion jump host.
+
+<br />
+
+### VM Creation (Proxmox UI)
+
+- **VMID:** 150
+- **Name:** bastion
+- **OS:** Debian 12 (netinst)
+- **CPU:** 1 socket, 2 cores (x86-64-v2-AES)
+- **RAM:** 1024 MB
+- **Disk:** 16 GB (scsi0, virtio-scsi-single, iothread)
+- **net0:** vmbr0 (VirtIO), Proxmox firewall enabled
+- **net1:** vmbr2 (VirtIO) added after initial install
+- **Start at boot:** enabled
+
+Rationale: bastion is infrastructure; should always be available. Minimal footprint; no GUI; SSH-only.
+
+---
+
+<br />
+
+### Unexpected GUI install + sudo dead-end
+
+Observed:
+- VM booted into GUI despite not intending desktop.
+- User was not in sudoers; root escalation not available.
+
+Fix — entered Debian recovery mode (root shell):
+
+1. Boot → recovery mode → root shell
+2. `mount -o remount,rw /`
+3. `apt update && apt install -y sudo`
+4. `usermod -aG sudo netman`
+5. reboot
+
+Verify after reboot:
+```bash
+sudo whoami
+# expected: root
+```
+
+---
+
+<br />
+
+### Remove GUI / bloat
+
+Bastion should be text-only. After sudo fixed + networking available, removed desktop packages:
+
+```bash
+sudo apt purge -y task-desktop task-gnome-desktop gnome* xorg* lightdm gdm3
+sudo apt autoremove -y --purge
+sudo systemctl set-default multi-user.target
+sudo reboot
+```
+
+Goal: bastion runs only SSH (+ fail2ban), no browsers, no desktop.
+
+---
+
+<br />
+
+### Bastion Networking
+
+**External NIC (vmbr0): ens18**
+
+Set to static to avoid DHCP IP changes.
+- **10.13.235.50/24**, gateway **10.13.235.254**
+
+Important gotcha: at one point gateway was incorrectly set to `10.13.235.0` (network address). Fixed to `10.13.235.254`.
+
+Verify:
+```bash
+ip a show ens18
+ip route
+# default via 10.13.235.254 dev ens18
+```
+
+**Internal NIC (vmbr2): ens19**
+
+Added net1 in Proxmox, then configured static:
+- **192.168.100.10/24**, no gateway (internal-only)
+
+Verify:
+```bash
+ip a show ens19
+ip route
+# 192.168.100.0/24 dev ens19 ...
+```
+
+---
+
+<br />
+
+### SSH Setup (bastion)
+
+Goal: key-only SSH from Mac; bastion acts as ProxyJump.
+
+Install SSH server:
+```bash
+sudo apt update
+sudo apt install -y openssh-server
+sudo systemctl enable --now ssh
+```
+
+Harden `/etc/ssh/sshd_config` (key points):
+```text
+PermitRootLogin no
+PasswordAuthentication no
+PubkeyAuthentication yes
+ChallengeResponseAuthentication no
+X11Forwarding no
+AllowTcpForwarding yes
+AllowUsers netman
+```
+
+```bash
+sudo systemctl restart ssh
+```
+
+---
+
+<br />
+
+### Fail2ban
+
+```bash
+sudo apt install -y fail2ban
+sudo systemctl enable --now fail2ban
+```
+
+---
+
+<br />
+
+### Mac SSH Convenience
+
+On Mac, `~/.ssh/config` example:
+```text
+Host bastion
+  HostName 10.13.235.50
+  User netman
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
+```
+
+First-time SSH used TOFU (typed "yes" to trust host key). Optional reset if needed:
+```bash
+ssh-keygen -R 10.13.235.50
+```
+
+---
+
+<br />
+
+### Bastion Internal Reachability
+
+Once vmbr2 attached + IP set, bastion can reach internal VMs:
+- CUDA VM: 192.168.100.100
+- Future: Kali/victims on vmbr2
+
+---
+
+<br />
+
+### Snapshot point
+
+After GUI removed, dual NICs configured, SSH hardened — take snapshot: **baseline-bastion-net-ok**

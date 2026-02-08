@@ -607,11 +607,12 @@ body.evidence li:not(:has(a)) {
   color:#111;
 }
 
-/* Project badges — fixed 28px height, inline after title */
+/* Project badges — base height via variable (revert: 28px) */
 .project-badge {
-  height: 28px !important;
-  min-height: 28px !important;
-  max-height: 28px !important;
+  --badge-h: 23px;
+  height: var(--badge-h) !important;
+  min-height: var(--badge-h) !important;
+  max-height: var(--badge-h) !important;
   width: auto !important;
   min-width: 0 !important;
   max-width: none !important;
@@ -642,8 +643,8 @@ h2:has(.badge-group) {
   padding-right: 10px;
 }
 
-.project-badge[data-badge="featured"] { height: 30px !important; min-height: 30px !important; max-height: 30px !important; }
-.project-badge[data-badge="ai/ml"]    { height: 26px !important; min-height: 26px !important; max-height: 26px !important; }
+.project-badge[data-badge="featured"] { --badge-h: 25px; height: var(--badge-h) !important; min-height: var(--badge-h) !important; max-height: var(--badge-h) !important; }
+.project-badge[data-badge="ai/ml"]    { --badge-h: 21px; height: var(--badge-h) !important; min-height: var(--badge-h) !important; max-height: var(--badge-h) !important; }
 
 /* Filters */
 .filters {

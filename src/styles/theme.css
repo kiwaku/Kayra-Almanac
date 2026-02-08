@@ -632,6 +632,7 @@ h1:has(.badge-group),
 h2:has(.badge-group) {
   display: flex;
   align-items: center;
+  gap: 0.3em;
 }
 
 .badge-group {

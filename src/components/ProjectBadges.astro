@@ -25,6 +25,10 @@ for (const b of badges) {
 }
 ---
 
-{activeBadges.map(b => (
-  <img class="project-badge" src={badgeConfig[b]} alt="" />
-))}
+{activeBadges.length > 0 && (
+  <span class="badge-group">
+    {activeBadges.map(b => (
+      <img class="project-badge" data-badge={b} src={badgeConfig[b]} alt="" />
+    ))}
+  </span>
+)}

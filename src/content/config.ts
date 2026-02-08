@@ -9,6 +9,7 @@ const project = defineCollection({
     domain: z.array(z.enum(['ai','security','os','hardware','rf','ux','viz'])),
     status: z.enum(['active','archived','paused']),
     featured: z.boolean().default(false),  // NEW: for homepage
+    badges: z.array(z.string()).default([]), // Badge types: oopart, ai/ml
     summary: z.string().optional(),        // Short summary for catalog/index
     metrics: z.object({
       loc: z.number().optional(),

@@ -593,6 +593,10 @@ body.evidence li:not(:has(a)) {
   margin:10px 0;
 }
 
+.diamondlist .block h2 {
+  margin-top: 0;
+}
+
 .diamondlist .block::before {
   content: "◆";
   position:absolute;
@@ -601,6 +605,25 @@ body.evidence li:not(:has(a)) {
   line-height:1;
   font-size:16px;
   color:#111;
+}
+
+/* Project badges — fixed 28px height, inline after title */
+.project-badge {
+  height: 28px !important;
+  min-height: 28px !important;
+  max-height: 28px !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  object-fit: contain;
+  margin: 0 !important;
+  margin-left: 8px !important;
+  border: none !important;
+  padding: 0 !important;
+  display: inline !important;
+  vertical-align: middle;
+  position: relative;
+  top: -3px;
 }
 
 /* Filters */

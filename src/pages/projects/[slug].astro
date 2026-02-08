@@ -1,6 +1,7 @@
 ---
 import Base from '../../layouts/SectionLayout.astro';
 import { getCollection } from 'astro:content';
+import ProjectBadges from '../../components/ProjectBadges.astro';
 
 export async function getStaticPaths() {
   const projects = await getCollection('projects');
@@ -16,7 +17,7 @@ const { Content } = await project.render();
 ---
 <Base title={`${data.title} — Project`} rawMarkdown={body}>
   <article class="project-page">
-    <h1>{data.title} <span class="muted">({data.year})</span></h1>
+    <h1>{data.title} <span class="muted">({data.year})</span> <ProjectBadges featured={data.featured} badges={data.badges} /></h1>
 
     <div class="abstract">
       <Content />

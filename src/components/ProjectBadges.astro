@@ -1,0 +1,30 @@
+---
+// Badge system — renders sigil badges next to project titles.
+// Badge types: "featured", "oopart", "ai/ml".
+// To add a new badge: add an entry to badgeConfig below with its image path.
+
+interface Props {
+  featured?: boolean;
+  badges?: string[];
+}
+
+const { featured = false, badges = [] } = Astro.props;
+
+// Central badge config — maps badge type to image
+const badgeConfig: Record<string, string> = {
+  featured: '/artifacts/badges/featured.png',
+  oopart: '/artifacts/badges/oopart.png',
+  'ai/ml': '/artifacts/badges/ai_ml.png',
+};
+
+// Collect all badges: auto-add "featured" if project is featured, plus any explicit badges
+const activeBadges: string[] = [];
+if (featured && badgeConfig.featured) activeBadges.push('featured');
+for (const b of badges) {
+  if (badgeConfig[b] && !activeBadges.includes(b)) activeBadges.push(b);
+}
+---
+
+{activeBadges.map(b => (
+  <img class="project-badge" src={badgeConfig[b]} alt="" />
+))}

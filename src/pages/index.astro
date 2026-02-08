@@ -2,6 +2,7 @@
 import Base from '../layouts/BaseLayout.astro';
 import { getCollection } from 'astro:content';
 import ArtifactRow from '../components/ArtifactRow.astro';
+import ProjectBadges from '../components/ProjectBadges.astro';
 
 const logbook = (await getCollection('logbook'))
   .sort((a,b)=> a.data.date < b.data.date ? 1 : -1)
@@ -37,7 +38,11 @@ ${logbook.map(e => `- ${e.data.date} — ${e.data.title}${e.data.anomaly ? ' ⚠
         const { Content } = await project.render();
         return (
           <li class="block" id={data.id}>
-            <h2><a href={`/projects/${data.id}`}>{data.title}</a> <span class="muted">({data.year})</span></h2>
+            <h2>
+              <a href={`/projects/${data.id}`}>{data.title}</a>
+              <span class="muted">({data.year})</span>
+              <ProjectBadges featured={data.featured} badges={data.badges} />
+            </h2>
             <div class="abstract">
               {data.summary ? <div set:html={data.summary} /> : <Content />}
             </div>

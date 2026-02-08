@@ -3,6 +3,7 @@ import Base from '../layouts/SectionLayout.astro';
 import { getCollection } from 'astro:content';
 import Filters from '../components/Filters.astro';
 import ArtifactRow from '../components/ArtifactRow.astro';
+import ProjectBadges from '../components/ProjectBadges.astro';
 
 const all = await getCollection('projects');
 
@@ -28,7 +29,7 @@ ${p.data.metrics?.loc ? `LOC: ${p.data.metrics.loc}` : ''}
       const { Content } = await project.render();
       return (
         <li class="block" id={data.id} data-domain={data.domain.join(' ')} data-status={data.status} data-year={data.year}>
-          <h2><a href={`/projects/${data.id}`}>{data.title}</a> <span class="muted">({data.year})</span></h2>
+          <h2><a href={`/projects/${data.id}`}>{data.title}</a> <span class="muted">({data.year})</span> <ProjectBadges featured={data.featured} badges={data.badges} /></h2>
           <div class="abstract">
             {data.summary ? <div set:html={data.summary} /> : <Content />}
           </div>

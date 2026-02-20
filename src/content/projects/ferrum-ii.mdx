@@ -138,7 +138,7 @@ The system has two programs connected by a QSFP+ DAC cable:
 
 The CPU's role is minimal: it posts RDMA work requests (telling the NIC what to send and where) and launches CUDA kernels. It never reads or writes packet data.
 
-{/* TODO: Fig — Full system architecture diagram (user will create as Mermaid/image) */}
+
 
 ---
 
@@ -156,7 +156,7 @@ The sender RDMA-writes packets into sequential slots. Every 64 packets, it RDMA-
 
 The doorbell lives in system RAM (not GPU VRAM) because the CPU needs to read it without a GPU round-trip. This split — data in GPU VRAM, control in system RAM — is central to the design.
 
-{/* TODO: Fig — Ring buffer architecture diagram (user will create) */}
+
 
 ---
 

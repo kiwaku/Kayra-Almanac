@@ -206,14 +206,7 @@ We solve this with `IBV_SEND_FENCE` on all doorbell RDMA writes. This flag instr
 
 ### 4.1 Hardware
 
-| Component | Model | Specification |
-|---|---|---|
-| CPU | 2× Intel Xeon E5-2683 v3 | 14 cores each, 2.0 GHz, 56 threads total |
-| RAM | DDR4 | 64 GB |
-| GPU | NVIDIA Tesla P40 | 24 GB VRAM, PCIe 3.0 ×16, Pascal GP102 |
-| NIC (receiver) | Mellanox ConnectX-3 Pro | Dual QSFP+, 40 Gbps, PCIe 3.0 ×8 |
-| NIC (sender) | Mellanox ConnectX-3 Pro | Dual QSFP+, 40 Gbps, PCIe 2.0 ×4 (adapter) |
-| Cable | QSFP+ DAC | 40 Gbps passive copper |
+<img src="/artifacts/ferrum-ii/table_hardware.png" alt="Hardware configuration — CPU, RAM, GPU, NICs, and DAC cable specifications" loading="lazy" />
 
 The Tesla P40 and Card 1 are on adjacent PCIe root port lanes under the same host bridge (PHB topology). This is the ideal configuration for GPUDirect RDMA — peer-to-peer DMA between the NIC and GPU doesn't need to traverse inter-socket links.
 
@@ -227,13 +220,7 @@ All three devices are passed through to a virtual machine (VMID 104) via VFIO on
 
 ### 4.2 Software
 
-| Component | Version |
-|---|---|
-| OS | Ubuntu 20.04.6 LTS (kernel 5.4.0-216) |
-| RDMA stack | MLNX_OFED 4.9-7.1.0.0 |
-| GPU driver | NVIDIA 550.163.01 |
-| CUDA toolkit | 12.4 |
-| GPUDirect | nvidia-peermem with `peerdirect_support=1` |
+<img src="/artifacts/ferrum-ii/table_software.png" alt="Software stack — OS, RDMA, GPU driver, CUDA, and GPUDirect versions" loading="lazy" />
 
 The choice of Ubuntu 20.04 with MLNX_OFED 4.9 was not arbitrary. ConnectX-3 support was dropped in OFED 5.x+. The nvidia-peermem module requires IB peer memory symbols from OFED to link against — Ubuntu's inbox RDMA stack doesn't provide them. Kernel 5.15 (Ubuntu 22.04) has `CONFIG_PCI_P2PDMA` disabled; kernel 6.8 breaks the IB peer memory API entirely. Ubuntu 20.04 + OFED 4.9 is the only combination where all three components (GPU driver, RDMA stack, peer memory bridge) work together for ConnectX-3.
 
@@ -278,11 +265,7 @@ The GPU constructs complete Ethernet frames using `__device__` functions written
 
 Three response types are implemented:
 
-| Attack | Response | Size | Construction |
-|---|---|---|---|
-| SYN flood | TCP RST+ACK | 54 bytes | Swaps MAC/IP/port from attacker flow, sets RST+ACK flags |
-| Port scan | Deceptive SYN-ACK | 54 bytes | Mimics open port (window=65535), deterministic ISN from flow hash |
-| ICMP flood | ICMP Dest Unreachable | 70 bytes | Type 3/Code 1, embeds original IP header |
+<img src="/artifacts/ferrum-ii/table_response_types.png" alt="Response types — TCP RST, deceptive SYN-ACK, and ICMP Unreachable per attack class" loading="lazy" />
 
 The deceptive SYN-ACK is a GPU-powered honeypot: to a port scanner, every probed port appears open, wasting the attacker's time and resources.
 
@@ -313,16 +296,7 @@ Same sender, same RDMA transport, same NIC, same model weights. The only differe
 
 ### 5.2 Results
 
-| Metric | GPU Zero-Copy | CPU Baseline | Improvement |
-|---|---|---|---|
-| Throughput | 2.62M pps (31.8 Gbps) | 3.14M pps (38.1 Gbps) | CPU slightly higher* |
-| Latency (avg) | **82 µs** | 4,128 µs | **50× lower** |
-| Latency (p99) | **119 µs** | 5,889 µs | **49× lower** |
-| Latency (max) | 2,345 µs | 5,913 µs | 2.5× lower |
-| CPU utilization | 12.5% | 10.4% | Similar |
-| cudaMemcpy | **0 µs** | 2,316 µs/cycle | **Eliminated** |
-| Valid packets | 100% | 100% | Identical |
-| Detection accuracy | Correct | Correct | Same model |
+<img src="/artifacts/ferrum-ii/table_benchmark.png" alt="Main benchmark results — GPU zero-copy vs CPU baseline latency, throughput, and overhead" loading="lazy" />
 
 *The CPU baseline achieves slightly higher throughput because RDMA writes to system RAM complete faster than writes to GPU VRAM (system RAM is directly on the memory bus; GPU VRAM requires PCIe peer-to-peer DMA). This is expected and consistent with our RDMA baseline measurements: 12.31 Gbps to system RAM vs. 10.9 Gbps to GPU VRAM.
 
@@ -380,11 +354,7 @@ The GPU zero-copy path is also remarkably stable. Over 30 seconds, average laten
 
 Adding processing stages to the GPU pipeline has minimal throughput impact:
 
-| Configuration | Throughput | Avg Latency |
-|---|---|---|
-| Parse + Flow (no model) | 2.76M pps | 79 µs |
-| Parse + Flow + Classify | 2.62M pps | 82 µs |
-| Parse + Flow + Classify + Respond | 2.72M pps | ~85 µs |
+<img src="/artifacts/ferrum-ii/table_pipeline_stages.png" alt="Pipeline stage ablation — throughput and latency by configuration" loading="lazy" />
 
 The classification kernel runs once per second over 65,536 flow table entries and takes approximately 0.5 milliseconds. The response crafting kernel is similarly fast. Neither meaningfully impacts throughput.
 
@@ -412,12 +382,7 @@ The classification kernel runs once per second over 65,536 flow table entries an
 
 Four attack types were tested with the response engine active (20 seconds each, 50M packets):
 
-| Attack | Responses | Breakdown | All Checksums Valid | Detection-to-Response |
-|---|---|---|---|---|
-| SYN flood | 22 | 1 RST + 17 SYN-ACK + 4 ICMP | Yes | 146 µs |
-| Port scan | 65,146 | ~65K SYN-ACK + ~150 ICMP | Yes | 282–977 µs |
-| ICMP flood | 23 | 18 SYN-ACK + 5 ICMP | Yes | ~200 µs |
-| Benign | 269* | 269 SYN-ACK (false positive) | Yes | — |
+<img src="/artifacts/ferrum-ii/table_response_testing.png" alt="Response engine testing — per-attack response counts, breakdown, and detection-to-response latency" loading="lazy" />
 
 *269 of 65,536 benign flows (0.41%) were misclassified as port scan — single-packet flows with SYN-only flags are statistically indistinguishable from port scan probes in our feature space. This is a model limitation, not a response engine bug.
 
@@ -431,12 +396,7 @@ All response packets were validated on the receiver side: correct Ethernet frami
 
 The MLP achieves 99.8% accuracy on the test set:
 
-| Class | Precision | Recall | F1-Score | Support |
-|---|---|---|---|---|
-| Benign | 1.00 | 0.99 | 1.00 | 2,000 |
-| SYN Flood | 1.00 | 1.00 | 1.00 | 2,000 |
-| Port Scan | 0.99 | 1.00 | 1.00 | 2,000 |
-| ICMP Flood | 1.00 | 1.00 | 1.00 | 2,000 |
+<img src="/artifacts/ferrum-ii/table_classification.png" alt="Classification report — precision, recall, F1-score per attack class" loading="lazy" />
 
 <div class="diagram-section">
   <a href="/artifacts/ferrum-ii/fig5_confusion_matrix.png" class="lightbox">
@@ -560,11 +520,7 @@ VM Configuration (Proxmox VMID 104):
 
 ## Appendix B: RDMA Baseline Measurements
 
-| Test | Target Memory | Result |
-|---|---|---|
-| `ib_write_bw` (64 KB, RC QP) | System RAM | 12.31 Gbps |
-| `ib_write_bw` (64 KB, RC QP) | GPU VRAM | 10.9 Gbps |
-| `ib_read_lat` (2B, RC QP) | System RAM | 2.18 µs |
+<img src="/artifacts/ferrum-ii/table_rdma_baseline.png" alt="RDMA baseline measurements — write bandwidth and read latency to system RAM vs GPU VRAM" loading="lazy" />
 
 The 12% throughput difference between system RAM and GPU VRAM targets reflects the additional PCIe hop for peer-to-peer DMA (NIC → PCIe switch → GPU, vs. NIC → memory controller → RAM).
 
@@ -574,15 +530,4 @@ The 12% throughput difference between system RAM and GPU VRAM targets reflects t
 
 ## Appendix C: Source File Summary
 
-| File | Lines | Purpose |
-|---|---|---|
-| `gpu_ingestion_engine.cu` | 810 | Main receiver: VRAM ring buffer, CUDA pipeline, RDMA response path |
-| `pkt_sender.c` | 593 | Sender: 6 traffic generator modes, pcap replay, response monitor |
-| `cpu_baseline.cu` | 537 | CPU-mediated baseline for benchmark comparison |
-| `flow_tracker.cuh` | 201 | GPU hash table: 65K entries, FNV-1a, atomic aggregation |
-| `response_engine.cuh` | 272 | GPU packet crafting: checksums, RST/SYN-ACK/ICMP builders |
-| `classifier.cuh` | 189 | CUDA MLP: forward pass per flow, binary weight loader |
-| `rdma_common.h` | 160 | RDMA boilerplate: QP setup, transitions, TCP exchange |
-| `common.h` | 118 | Shared structs and constants |
-| `train_model.py` | 177 | Offline MLP training and weight export |
-| **Total** | **~3,100** | |
+<img src="/artifacts/ferrum-ii/table_source_files.png" alt="Source file summary — lines of code and purpose per file, ~3,100 total" loading="lazy" />

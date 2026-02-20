@@ -24,11 +24,7 @@ End-to-end proof that traffic between attacker and victim VMs traversing a physi
 - **Host:** Proxmox (Hephaestus), all work inside VMs on already-wired NICs
 - **Zero Proxmox-level changes** — all test traffic is in-guest only
 
-| VM | Role | NIC | Bridge | GS105E Port |
-|---|---|---|---|---|
-| Kali | Traffic source (attacker) | eth1 (`bc:24:11:c6:15:43`) | vmbr3 | port 1 |
-| Victim | Traffic sink (target) | enp6s18 (`bc:24:11:11:74:89`) | vmbr4 | port 2 |
-| Sniffer | Passive capture (sensor) | enp6s18 (`bc:24:11:9d:05:a5`) | vmbr1 | port 5 |
+<img src="/artifacts/ferrum-i/table_vm_inventory.png" alt="VM inventory — Kali, Victim, Sniffer roles with NICs, bridges, and GS105E ports" loading="lazy" />
 
 ---
 
@@ -176,12 +172,7 @@ post-up bridge link set dev nic1 learning off
 | Fidelity: No truncation, correct MACs in every frame | PASS |
 | Cleanup: Temp IPs removed, no persistent state changes | PASS |
 
-| Failure Signature | Likely Cause | Diagnostic |
-|---|---|---|
-| Sniffer captures 0 frames | Mirror rule not active or wrong port mapping | Check GS105E mirror config |
-| Ping works but sniffer sees nothing | Mirror destination not receiving; NIC not promisc | `ip -d link show enp6s18` |
-| Sniffer sees requests but not replies | Only one direction mirrored | Verify mirror sources include BOTH port1 AND port2 |
-| Ping fails: "Destination Host Unreachable" | Temp IPs not assigned or ARP not resolving | Verify IPs; try `arping` |
+<img src="/artifacts/ferrum-i/table_failure_signatures.png" alt="Failure signature troubleshooting — symptoms, likely causes, and diagnostics" loading="lazy" />
 
 ---
 

@@ -67,11 +67,7 @@ Still failed — same EFAULT.
 <details className="capability">
   <summary><span className="chevron">▸</span><strong>The sandwich: no single Ubuntu 22.04 kernel works</strong></summary>
 
-| | Kernel 5.15 (stock) | Kernel 6.8 (HWE) |
-|---|---|---|
-| nvidia-peermem (inbox) | Loads, but `PCI_P2PDMA` disabled → EFAULT | `PCI_P2PDMA=y`, but peermem won't load (no IB peer mem API) |
-| MLNX_OFED 4.9 | Might work (uncertain 5.15 support) | Won't support 6.8 |
-| MLNX_OFED 5.x+ | Dropped ConnectX-3 entirely | Dropped ConnectX-3 entirely |
+<img src="/artifacts/ferrum-ii/table_compatibility_sandwich.png" alt="Compatibility sandwich — nvidia-peermem vs MLNX_OFED across kernel 5.15 and 6.8" loading="lazy" />
 
 Four options evaluated: (A) OFED 4.9 on older kernel, (B) custom kernel build, (C) custom nv_p2p kernel module, (D) CUDA IPC fallback.
 </details>
@@ -148,13 +144,7 @@ End-to-end detection: SYN flood 4/4 dominant flows detected, port scan 99.99%, I
 
 Side-by-side comparison on identical 12s sustained mixed traffic:
 
-| Metric | GPU zero-copy | CPU baseline | Delta |
-|---|---|---|---|
-| Throughput | 2.69M pps | 2.80M pps | ~equal |
-| Latency avg | **73 µs** | 3,104 µs | **42× lower** |
-| Latency p99 | **116 µs** | 9,025 µs | **78× lower** |
-| cudaMemcpy | **0 µs** | 1,061 µs/cycle | eliminated |
-| CPU utilization | 12.3% | 11.0% | similar |
+<img src="/artifacts/ferrum-ii/table_benchmark_results.png" alt="Benchmark results — GPU zero-copy vs CPU baseline latency and throughput" loading="lazy" />
 
 CPU baseline slightly higher throughput (system RAM faster for sender writes) but latency 42–78× worse. The 1+ ms `cudaMemcpy` per classification cycle is the primary source — zero-copy eliminates it entirely.
 

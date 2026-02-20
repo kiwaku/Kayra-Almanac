@@ -1,0 +1,65 @@
+---
+title: "Ferrum I: SPAN-to-PCAP Truth Pipeline Validated"
+date: "2026-02-11"
+tags: ["security", "hephaestus", "networking", "span", "pcap", "ferrum"]
+project: ferrum-i
+images: []
+anomaly: false
+---
+
+Full end-to-end SPAN mirror validation session. L2 and L3 proofs captured, two blockers resolved (GS105E VLAN isolation + bridge MAC learning), permanent fixes applied.
+
+<br />
+
+### Pre-flight results
+
+All green before any test traffic:
+- Sniffer enp6s18: UP, PROMISC, promiscuity 1
+- Kali eth1: UP, PROMISC, correct MAC `bc:24:11:c6:15:43`
+- Victim enp6s18: UP, correct MAC `bc:24:11:11:74:89`
+- tcpdump 4.99.3 on sniffer, arping+ping+nping on kali
+- No IPv4 on any lab NIC (policy-compliant)
+- Proxmox bridge membership confirmed:
+  - `tap101i1` → vmbr3 → nic2 (kali eth1 → GS105E port1)
+  - `tap102i0` → vmbr4 → nic3 (victim enp6s18 → GS105E port2)
+  - `tap103i0` → vmbr1 → nic1 (sniffer enp6s18 → GS105E port5)
+
+---
+
+<br />
+
+### L2 test: PASS
+
+Kali sent 5 gratuitous ARP broadcasts. Sniffer captured all frames via GS105E mirror.
+
+Packet counter trace (3-packet test):
+
+| Hop | Before | After | Delta |
+|---|---|---|---|
+| proxmox nic1 rx | 2078 | 2081 | +3 |
+| proxmox tap103i0 tx | 84 | 87 | +3 |
+| guest enp6s18 rx | 80 | 83 | +3 |
+
+Full path: Kali eth1 → vmbr3 → nic2 → GS105E port1 → mirror → port5 → nic1 → vmbr1 → tap103i0 → sniffer enp6s18.
+
+---
+
+<br />
+
+### L3 test: PASS (after two blockers resolved)
+
+**Blocker 1 — GS105E port-based VLAN** was isolating ports. Mirror (port1→port5) worked because mirroring bypasses VLAN isolation, but normal L2 forwarding (port1↔port2) was blocked. Fix: disabled port-based VLAN on GS105E via web UI.
+
+**Blocker 2 — vmbr1 bridge MAC learning** on nic1. Bridge learned kali/victim MACs from mirror traffic, then dropped unicast frames with those destination MACs as "same port." ARP (broadcast) was unaffected — only unicast ICMP was blocked. Fix: `bridge link set dev nic1 learning off` + permanent in `/etc/network/interfaces`.
+
+After fixes: `ping -I eth1 -c 5 10.99.99.2` → 5/5, 0% loss, ~0.5ms avg. Sniffer captured 15 ICMP packets (both directions mirrored). Temp IPs rolled back, verified clean.
+
+---
+
+<br />
+
+### Other findings
+
+- **tcpdump `-i enp6s18` blind to received frames** — kernel rx_packets increments but `tcpdump -i enp6s18` captures 0. Likely virtio-net / AF_PACKET interaction. Workaround: always use `tcpdump -i any` with filters.
+- **Sudoers gaps** addressed mid-session: added NOPASSWD for tcpdump, pkill, kill, ip, arping, ethtool, ss, tshark.
+- **SSH multiplexing** on proxmox: stale ControlMaster socket caused auth failures. Fixed with `ControlMaster no`.

@@ -1,0 +1,588 @@
+---
+title: "Ferrum: Layer II"
+id: ferrum-ii
+year: 2026
+domain: ["ai", "security", "hardware"]
+status: "active"
+featured: true
+badges: ["ai/ml", "oopart"]
+summary: "<strong>Zero-copy wire-to-inference</strong> — GPU-accelerated network threat detection and response via RDMA. Packets travel from NIC directly into GPU VRAM, bypassing the CPU entirely. CUDA kernels parse, classify, and craft response packets in real time.<ul><li>2.62M pps / 31.8 Gbps sustained ingestion</li><li>82 µs avg latency (50× lower than CPU baseline)</li><li>GPU-native IPS: autonomous RST/SYN-ACK/ICMP response</li><li>~3,100 lines C/CUDA, no frameworks</li></ul>"
+metrics: { loc: 3100 }
+artifacts:
+  diagram: "/artifacts/ferrum-ii/fig_summary_4panel.png"
+images:
+  - "/artifacts/ferrum-ii/fig2_latency_bars.png"
+  - "/artifacts/ferrum-ii/fig5_confusion_matrix.png"
+  - "/artifacts/ferrum-ii/fig12_pipeline_stages.png"
+  - "/artifacts/ferrum-ii/fig9b_feature_distributions_4panel.png"
+related: ["ferrum-i", "hephaestus", "crest-snn"]
+---
+
+# Zero-Copy Wire-to-Inference: GPU-Accelerated Network Threat Detection and Response via RDMA
+
+---
+
+<br />
+
+## Abstract
+
+We present a network intrusion detection and prevention system where raw network packets travel from a NIC directly into GPU memory — bypassing the CPU entirely — and a CUDA-resident machine learning model classifies traffic and crafts response packets in real time. The system uses RDMA (Remote Direct Memory Access) with GPUDirect to deposit incoming Ethernet frames into a ring buffer allocated in GPU VRAM. CUDA kernels then parse headers, aggregate flows, classify threats, and generate response packets — all without a single CPU copy of packet data.
+
+On commodity hardware (Tesla P40, ConnectX-3 Pro, Xeon E5 v3), the system sustains 2.62 million packets per second at 82 microsecond average processing latency — 50 times lower than an identical pipeline that routes packets through system RAM. The GPU autonomously crafts and transmits response packets (TCP RST, deceptive SYN-ACK, ICMP Unreachable) within 146–282 microseconds of detection, with no throughput regression.
+
+The entire runtime is approximately 3,000 lines of C and CUDA. No frameworks. No DPDK. No PyTorch. Just RDMA verbs, CUDA kernels, and a 13 KB neural network.
+
+---
+
+<br />
+
+## 1. Introduction
+
+Network intrusion detection systems have a speed problem.
+
+Modern networks move traffic at 10, 40, or 100 gigabits per second. Traditional IDS architectures — tcpdump, libpcap, or even DPDK — capture packets into system RAM, where the CPU parses headers, extracts features, and feeds them to a machine learning model. When ML enters the picture, the data usually needs to be copied again — from CPU memory to GPU memory via `cudaMemcpy` — before the model can process it.
+
+This copy-parse-copy pipeline introduces latency at every stage. The CPU becomes the bottleneck not because it's slow at any one thing, but because it's doing everything: interrupt handling, memory management, protocol parsing, feature extraction, and orchestrating GPU transfers. By the time the model produces a verdict, milliseconds have passed.
+
+This paper asks a simple question: **what if we removed the CPU from the packet path entirely?**
+
+The idea is straightforward. RDMA-capable NICs can DMA data into arbitrary memory regions. GPUDirect RDMA lets those memory regions live in GPU VRAM instead of system RAM. If we combine the two, incoming packets can land directly in GPU memory — where CUDA kernels are waiting to parse, analyze, and classify them. No CPU copies. No intermediate buffers. No kernel-bypass frameworks.
+
+We built this system. It works. This paper describes how, shows the numbers, and discusses what it means. Figure 1 summarizes the headline results.
+
+<div class="diagram-section">
+  <a href="/artifacts/ferrum-ii/fig_summary_4panel.png" class="lightbox">
+    <img src="/artifacts/ferrum-ii/fig_summary_4panel.png" alt="Figure 1 — Summary of key results: latency comparison, throughput over time, CPU utilization, and pipeline stage overhead" />
+  </a>
+</div>
+
+**Figure 1.** Summary of key results: latency comparison, throughput over time, CPU utilization, and pipeline stage overhead.
+
+---
+
+<br />
+
+## 2. Background
+
+### 2.1 The Traditional Packet Processing Pipeline
+
+In a conventional network monitoring setup, packets flow through several stages, each involving the CPU:
+
+```
+NIC → Kernel driver → Socket buffer → Userspace copy → Application
+```
+
+Tools like tcpdump or Suricata read packets through `libpcap`, which copies each packet from kernel space to user space. If a GPU-based ML model is involved, the data must be copied again:
+
+```
+Application (CPU) → cudaMemcpy → GPU VRAM → Model inference
+```
+
+Each copy has a cost. A `cudaMemcpy` of a batch of flow features to GPU memory takes 1–3 milliseconds on typical hardware. For a system processing millions of packets per second, this adds up.
+
+Kernel-bypass frameworks like DPDK eliminate the first copy by mapping NIC queues directly into userspace. This is a significant improvement, but the packets still land in system RAM, and the CPU still parses every header. The GPU copy remains.
+
+---
+
+<br />
+
+### 2.2 RDMA (Remote Direct Memory Access)
+
+RDMA allows one machine's NIC to read from or write to another machine's memory without involving either CPU. In our context, the key operation is **RDMA WRITE**: the sender's NIC pushes data directly into a memory region on the receiver, at a specific address, with no involvement from the receiver's CPU.
+
+RDMA requires:
+- An RDMA-capable NIC (we use Mellanox ConnectX-3 Pro)
+- A **Queue Pair (QP)** — a send queue and receive queue that the NIC processes autonomously
+- A **Memory Region (MR)** — a registered chunk of memory that the NIC is allowed to DMA into
+- **libibverbs** — the userspace API for posting work requests to the NIC
+
+For two machines to communicate, they exchange connection information (QP numbers, memory addresses, remote keys) during setup. After that, the sender posts RDMA WRITE requests, and the NIC handles delivery without any CPU involvement on either side.
+
+---
+
+<br />
+
+### 2.3 GPUDirect RDMA
+
+NVIDIA's GPUDirect RDMA extends this capability: the memory region registered for RDMA can be backed by GPU VRAM instead of system RAM. When the sender's NIC performs an RDMA WRITE, the data travels across PCIe and lands directly in the GPU — no system RAM staging, no CPU copy, no `cudaMemcpy`.
+
+This requires:
+- The GPU and NIC on the same PCIe root complex (ideally adjacent root ports)
+- The `nvidia-peermem` kernel module, which brokers the mapping between NIC and GPU memory
+- Careful driver compatibility (we use MLNX_OFED 4.9 with NVIDIA driver 550)
+
+Once registered, GPU VRAM looks like any other memory region to the NIC. The NIC doesn't know or care that it's writing to a GPU — it just DMAs to a physical address.
+
+---
+
+<br />
+
+### 2.4 ML-Based Network Intrusion Detection
+
+Machine learning approaches to network intrusion detection typically extract per-flow features — packet counts, byte volumes, inter-arrival times, TCP flag distributions — and classify flows using models ranging from decision trees to deep neural networks.
+
+The model quality depends heavily on these features, which must be computed from raw packets in real time. This is traditionally CPU work. In our system, CUDA kernels compute all features directly from raw Ethernet frames in GPU VRAM — the data never leaves the GPU between ingestion and classification.
+
+---
+
+<br />
+
+## 3. System Design
+
+### 3.1 Overview
+
+The system has two programs connected by a QSFP+ DAC cable:
+
+- **pkt_sender** (Card 2): generates or replays traffic, RDMA-writes packets into the receiver's GPU memory
+- **gpu_ingestion_engine** (Card 1): allocates a ring buffer in GPU VRAM, registers it as an RDMA memory region, and runs CUDA kernels that parse, track, classify, and respond
+
+The CPU's role is minimal: it posts RDMA work requests (telling the NIC what to send and where) and launches CUDA kernels. It never reads or writes packet data.
+
+{/* TODO: Fig — Full system architecture diagram (user will create as Mermaid/image) */}
+
+---
+
+<br />
+
+### 3.2 Ring Buffer Architecture
+
+The receiver allocates a 96 MB ring buffer in GPU VRAM via `cuMemAlloc`:
+
+- **65,536 slots** × **1,536 bytes** per slot
+- Each slot: 18-byte header (packet length, 0xCAFE magic marker, sequence number, timestamp) + up to 1,518 bytes of Ethernet frame
+- Single-producer (NIC) / single-consumer (CUDA kernel), lockless
+
+The sender RDMA-writes packets into sequential slots. Every 64 packets, it RDMA-writes a **doorbell** — a small update to a separate memory region in system RAM — that advances the `write_head` pointer. The receiver's CPU polls this doorbell and launches CUDA kernels to process new packets.
+
+The doorbell lives in system RAM (not GPU VRAM) because the CPU needs to read it without a GPU round-trip. This split — data in GPU VRAM, control in system RAM — is central to the design.
+
+{/* TODO: Fig — Ring buffer architecture diagram (user will create) */}
+
+---
+
+<br />
+
+### 3.3 CUDA Processing Pipeline
+
+Every second, or when sufficient packets accumulate, the CPU launches a sequence of CUDA kernels:
+
+1. **parse_packets**: One thread per new packet. Reads raw Ethernet frames from the ring buffer, extracts Ethernet (src/dst MAC, EtherType), IPv4 (src/dst IP, protocol, length), and TCP/UDP/ICMP headers. Outputs a structured `parsed_pkt` array in GPU VRAM.
+
+2. **aggregate_flows**: One thread per parsed packet. Hashes the 5-tuple (src IP, dst IP, src port, dst port, protocol) with FNV-1a and inserts into a GPU-resident hash table (65,536 entries, open addressing, linear probing). Updates per-flow features using CUDA atomics: `atomicAdd` for counters, `atomicMin`/`atomicMax` for size and timing extremes.
+
+3. **classify_flows**: One thread per hash table entry. Reads 15 features from each active flow, normalizes them (min-max, stored in GPU constant memory), and runs a forward pass through a 15→64→32→4 MLP with ReLU activations. Writes a predicted label: benign (0), SYN flood (1), port scan (2), or ICMP flood (3).
+
+4. **craft_responses** (Phase 6): One thread per hash table entry. For each flow classified as malicious (and not already responded to), claims a slot in a 512 KB response ring buffer (also in GPU VRAM) and constructs a complete Ethernet frame: TCP RST for SYN floods, deceptive SYN-ACK for port scans, ICMP Destination Unreachable for ICMP floods. Computes IP and TCP/ICMP checksums entirely on the GPU.
+
+After the craft kernel, the CPU posts RDMA WRITEs from Card 1's QP to transmit the response packets back through the DAC cable.
+
+---
+
+<br />
+
+### 3.4 Bidirectional RDMA
+
+A key architectural insight: RDMA Reliable Connected (RC) Queue Pairs are inherently bidirectional. Card 1's QP, which was set up to receive ingestion traffic, was already in Ready-to-Send (RTS) state. To enable responses, we only needed Card 2 to share a response receive buffer address and remote key during the initial TCP handshake.
+
+The same QP pair handles both directions:
+- **Ingestion** (Card 2 → Card 1): packets into GPU VRAM
+- **Response** (Card 1 → Card 2): GPU-crafted packets back to sender
+
+---
+
+<br />
+
+### 3.5 PCIe Write Ordering
+
+GPUDirect RDMA introduces a subtlety: RDMA writes to GPU VRAM and RDMA writes to system RAM traverse different PCIe paths. The doorbell (system RAM) can arrive and advance `write_head` before the packet data (GPU VRAM) is actually visible to CUDA kernels.
+
+We solve this with `IBV_SEND_FENCE` on all doorbell RDMA writes. This flag instructs the NIC to complete all previously posted writes before executing the fenced write, guaranteeing that packet data is visible when the receiver sees the updated head pointer.
+
+---
+
+<br />
+
+## 4. Implementation
+
+### 4.1 Hardware
+
+| Component | Model | Specification |
+|---|---|---|
+| CPU | 2× Intel Xeon E5-2683 v3 | 14 cores each, 2.0 GHz, 56 threads total |
+| RAM | DDR4 | 64 GB |
+| GPU | NVIDIA Tesla P40 | 24 GB VRAM, PCIe 3.0 ×16, Pascal GP102 |
+| NIC (receiver) | Mellanox ConnectX-3 Pro | Dual QSFP+, 40 Gbps, PCIe 3.0 ×8 |
+| NIC (sender) | Mellanox ConnectX-3 Pro | Dual QSFP+, 40 Gbps, PCIe 2.0 ×4 (adapter) |
+| Cable | QSFP+ DAC | 40 Gbps passive copper |
+
+The Tesla P40 and Card 1 are on adjacent PCIe root port lanes under the same host bridge (PHB topology). This is the ideal configuration for GPUDirect RDMA — peer-to-peer DMA between the NIC and GPU doesn't need to traverse inter-socket links.
+
+Card 2 is in an M.2 adapter slot, limited to PCIe 2.0 ×4 (~10 Gbps). This is the sender-side bottleneck but does not affect the receiver architecture.
+
+All three devices are passed through to a virtual machine (VMID 104) via VFIO on a Proxmox hypervisor.
+
+---
+
+<br />
+
+### 4.2 Software
+
+| Component | Version |
+|---|---|
+| OS | Ubuntu 20.04.6 LTS (kernel 5.4.0-216) |
+| RDMA stack | MLNX_OFED 4.9-7.1.0.0 |
+| GPU driver | NVIDIA 550.163.01 |
+| CUDA toolkit | 12.4 |
+| GPUDirect | nvidia-peermem with `peerdirect_support=1` |
+
+The choice of Ubuntu 20.04 with MLNX_OFED 4.9 was not arbitrary. ConnectX-3 support was dropped in OFED 5.x+. The nvidia-peermem module requires IB peer memory symbols from OFED to link against — Ubuntu's inbox RDMA stack doesn't provide them. Kernel 5.15 (Ubuntu 22.04) has `CONFIG_PCI_P2PDMA` disabled; kernel 6.8 breaks the IB peer memory API entirely. Ubuntu 20.04 + OFED 4.9 is the only combination where all three components (GPU driver, RDMA stack, peer memory bridge) work together for ConnectX-3.
+
+**The entire runtime is C and CUDA — approximately 3,000 lines of code.** There are no framework dependencies: no PyTorch, no TensorRT, no cuDNN, no DPDK. The ML model (3,236 parameters, 13 KB binary) is loaded into GPU constant memory at startup. The RDMA layer uses raw libibverbs. The packet parser is hand-written CUDA.
+
+---
+
+<br />
+
+### 4.3 ML Model
+
+The classifier is a multi-layer perceptron: 15 input features → 64 hidden (ReLU) → 32 hidden (ReLU) → 4 output classes.
+
+**Features** (per flow, extracted by CUDA from GPU VRAM): packet count, byte count, duration, inter-arrival time (avg/min/max), packet size (min/max/avg), TCP flag counts (SYN, ACK, FIN, RST, PSH), IP protocol number.
+
+**Classes**: benign, SYN flood, port scan, ICMP flood.
+
+**Training**: sklearn MLPClassifier on four synthetic labeled datasets (500K packets each, aggregated into flow tables). Weights exported as a flat binary (min/max normalization parameters + weight matrices + bias vectors). Training took under 30 seconds on a laptop. Test accuracy: 99.8%.
+
+<div class="diagram-section">
+  <a href="/artifacts/ferrum-ii/fig10_training_loss.png" class="lightbox">
+    <img src="/artifacts/ferrum-ii/fig10_training_loss.png" alt="Figure 2 — MLP training loss over epochs, converging in under 100 iterations" />
+  </a>
+</div>
+
+**Figure 2.** MLP training loss over epochs, converging in under 100 iterations.
+
+The training data is synthetic — generated by the sender program's flood, portscan, icmpflood, and benign modes. This makes the classes trivially separable and the model would not generalize well to real-world traffic. We discuss this limitation in Section 7. The model exists to prove the pipeline works end-to-end, not to advance the state of the art in network anomaly detection.
+
+---
+
+<br />
+
+### 4.4 Response Packet Crafting
+
+The GPU constructs complete Ethernet frames using `__device__` functions written from scratch:
+
+- **Byte-swap helpers** (`gpu_htons`, `gpu_htonl`): the GPU is little-endian, the network is big-endian
+- **IP checksum**: standard ones-complement sum over the IP header
+- **TCP checksum**: ones-complement with pseudo-header (source IP, destination IP, protocol, TCP length)
+- **ICMP checksum**: ones-complement over the ICMP message
+
+Three response types are implemented:
+
+| Attack | Response | Size | Construction |
+|---|---|---|---|
+| SYN flood | TCP RST+ACK | 54 bytes | Swaps MAC/IP/port from attacker flow, sets RST+ACK flags |
+| Port scan | Deceptive SYN-ACK | 54 bytes | Mimics open port (window=65535), deterministic ISN from flow hash |
+| ICMP flood | ICMP Dest Unreachable | 70 bytes | Type 3/Code 1, embeds original IP header |
+
+The deceptive SYN-ACK is a GPU-powered honeypot: to a port scanner, every probed port appears open, wasting the attacker's time and resources.
+
+---
+
+<br />
+
+## 5. Evaluation
+
+We evaluate three questions: (1) does zero-copy provide a latency advantage over CPU-mediated processing? (2) does the pipeline maintain throughput at line rate? (3) does the response engine work without degrading performance?
+
+---
+
+<br />
+
+### 5.1 Benchmark Setup
+
+Two methods are compared on identical 30-second sustained traffic (mixed mode: SYN flood + port scan + ICMP, ~100M packets):
+
+- **Method A — GPU Zero-Copy**: RDMA → GPU VRAM → CUDA parse → CUDA flow → CUDA classify
+- **Method B — CPU Baseline**: RDMA → system RAM → CPU parse → CPU flow → `cudaMemcpy` → CUDA classify
+
+Same sender, same RDMA transport, same NIC, same model weights. The only difference is where packets land and who processes them.
+
+---
+
+<br />
+
+### 5.2 Results
+
+| Metric | GPU Zero-Copy | CPU Baseline | Improvement |
+|---|---|---|---|
+| Throughput | 2.62M pps (31.8 Gbps) | 3.14M pps (38.1 Gbps) | CPU slightly higher* |
+| Latency (avg) | **82 µs** | 4,128 µs | **50× lower** |
+| Latency (p99) | **119 µs** | 5,889 µs | **49× lower** |
+| Latency (max) | 2,345 µs | 5,913 µs | 2.5× lower |
+| CPU utilization | 12.5% | 10.4% | Similar |
+| cudaMemcpy | **0 µs** | 2,316 µs/cycle | **Eliminated** |
+| Valid packets | 100% | 100% | Identical |
+| Detection accuracy | Correct | Correct | Same model |
+
+*The CPU baseline achieves slightly higher throughput because RDMA writes to system RAM complete faster than writes to GPU VRAM (system RAM is directly on the memory bus; GPU VRAM requires PCIe peer-to-peer DMA). This is expected and consistent with our RDMA baseline measurements: 12.31 Gbps to system RAM vs. 10.9 Gbps to GPU VRAM.
+
+<div class="diagram-section">
+  <a href="/artifacts/ferrum-ii/fig2_latency_bars.png" class="lightbox">
+    <img src="/artifacts/ferrum-ii/fig2_latency_bars.png" alt="Figure 3 — Average and p99 latency comparison between GPU zero-copy and CPU baseline paths" />
+  </a>
+</div>
+
+**Figure 3.** Average and p99 latency comparison between GPU zero-copy and CPU baseline paths.
+
+The throughput story is a wash. The latency story is not. The GPU zero-copy path processes packets in **82 microseconds** on average. The CPU baseline takes **4,128 microseconds** — fifty times longer. The p99 tells the same story: 119 µs vs. 5,889 µs.
+
+Where does the CPU baseline's latency go? Over half of it — 2,316 µs per classification cycle — is spent in `cudaMemcpy`, transferring the flow table from system RAM to GPU memory so the model can run.
+
+<div class="diagram-section">
+  <a href="/artifacts/ferrum-ii/fig_cudamemcpy_overhead.png" class="lightbox">
+    <img src="/artifacts/ferrum-ii/fig_cudamemcpy_overhead.png" alt="Figure 4 — Per-cycle cudaMemcpy duration in the CPU baseline, showing the dominant source of latency that zero-copy eliminates" />
+  </a>
+</div>
+
+**Figure 4.** Per-cycle `cudaMemcpy` duration in the CPU baseline, showing the dominant source of latency that zero-copy eliminates.
+
+The GPU zero-copy path is also remarkably stable. Over 30 seconds, average latency varies between 76 and 102 microseconds. The CPU baseline swings between 1,600 and 18,000 microseconds, with early warmup spikes exceeding 20 milliseconds.
+
+<div class="diagram-section">
+  <a href="/artifacts/ferrum-ii/fig3_latency_timeseries.png" class="lightbox">
+    <img src="/artifacts/ferrum-ii/fig3_latency_timeseries.png" alt="Figure 5 — Per-second average latency over the benchmark run. GPU zero-copy (bottom) vs CPU baseline (top)" />
+  </a>
+</div>
+
+**Figure 5.** Per-second average latency over the benchmark run. GPU zero-copy (bottom) vs. CPU baseline (top).
+
+<div class="diagram-section">
+  <a href="/artifacts/ferrum-ii/fig4_throughput_timeseries.png" class="lightbox">
+    <img src="/artifacts/ferrum-ii/fig4_throughput_timeseries.png" alt="Figure 6 — Per-second throughput (Mpps) over the benchmark run for both paths" />
+  </a>
+</div>
+
+**Figure 6.** Per-second throughput (Mpps) over the benchmark run for both paths.
+
+<div class="diagram-section">
+  <a href="/artifacts/ferrum-ii/fig8_cpu_utilization.png" class="lightbox">
+    <img src="/artifacts/ferrum-ii/fig8_cpu_utilization.png" alt="Figure 7 — CPU utilization over time. Both paths stay under 13%" />
+  </a>
+</div>
+
+**Figure 7.** CPU utilization over time. Both paths stay under 13%, confirming the CPU is nearly idle in the data plane.
+
+---
+
+<br />
+
+### 5.3 Pipeline Stage Overhead
+
+Adding processing stages to the GPU pipeline has minimal throughput impact:
+
+| Configuration | Throughput | Avg Latency |
+|---|---|---|
+| Parse + Flow (no model) | 2.76M pps | 79 µs |
+| Parse + Flow + Classify | 2.62M pps | 82 µs |
+| Parse + Flow + Classify + Respond | 2.72M pps | ~85 µs |
+
+The classification kernel runs once per second over 65,536 flow table entries and takes approximately 0.5 milliseconds. The response crafting kernel is similarly fast. Neither meaningfully impacts throughput.
+
+<div class="diagram-section">
+  <a href="/artifacts/ferrum-ii/fig12_pipeline_stages.png" class="lightbox">
+    <img src="/artifacts/ferrum-ii/fig12_pipeline_stages.png" alt="Figure 8 — Throughput by pipeline configuration" />
+  </a>
+</div>
+
+**Figure 8.** Throughput by pipeline configuration (parse-only, parse+flow, full pipeline with classify and respond).
+
+<div class="diagram-section">
+  <a href="/artifacts/ferrum-ii/fig12b_pipeline_latency.png" class="lightbox">
+    <img src="/artifacts/ferrum-ii/fig12b_pipeline_latency.png" alt="Figure 9 — Latency by pipeline configuration" />
+  </a>
+</div>
+
+**Figure 9.** Latency by pipeline configuration, showing minimal overhead from adding classification and response stages.
+
+---
+
+<br />
+
+### 5.4 Response Engine Validation
+
+Four attack types were tested with the response engine active (20 seconds each, 50M packets):
+
+| Attack | Responses | Breakdown | All Checksums Valid | Detection-to-Response |
+|---|---|---|---|---|
+| SYN flood | 22 | 1 RST + 17 SYN-ACK + 4 ICMP | Yes | 146 µs |
+| Port scan | 65,146 | ~65K SYN-ACK + ~150 ICMP | Yes | 282–977 µs |
+| ICMP flood | 23 | 18 SYN-ACK + 5 ICMP | Yes | ~200 µs |
+| Benign | 269* | 269 SYN-ACK (false positive) | Yes | — |
+
+*269 of 65,536 benign flows (0.41%) were misclassified as port scan — single-packet flows with SYN-only flags are statistically indistinguishable from port scan probes in our feature space. This is a model limitation, not a response engine bug.
+
+All response packets were validated on the receiver side: correct Ethernet framing, valid IP checksums, correct TCP flag combinations, proper ICMP type/code fields.
+
+---
+
+<br />
+
+### 5.5 Classification Performance
+
+The MLP achieves 99.8% accuracy on the test set:
+
+| Class | Precision | Recall | F1-Score | Support |
+|---|---|---|---|---|
+| Benign | 1.00 | 0.99 | 1.00 | 2,000 |
+| SYN Flood | 1.00 | 1.00 | 1.00 | 2,000 |
+| Port Scan | 0.99 | 1.00 | 1.00 | 2,000 |
+| ICMP Flood | 1.00 | 1.00 | 1.00 | 2,000 |
+
+<div class="diagram-section">
+  <a href="/artifacts/ferrum-ii/fig5_confusion_matrix.png" class="lightbox">
+    <img src="/artifacts/ferrum-ii/fig5_confusion_matrix.png" alt="Figure 10 — Confusion matrix on the held-out test set (8,000 flows, 2,000 per class)" />
+  </a>
+</div>
+
+**Figure 10.** Confusion matrix on the held-out test set (8,000 flows, 2,000 per class).
+
+These numbers reflect synthetic training data with clean, well-separated class distributions. Real-world performance would be significantly lower (see Section 7).
+
+The four classes occupy almost non-overlapping regions in feature space. Average packet size is the starkest example: all three attack classes cluster between 58–66 bytes (bare protocol headers), while benign flows range from 64 to 1,400 bytes. The model is not learning subtle patterns; it is learning obvious ones.
+
+<div class="diagram-section">
+  <a href="/artifacts/ferrum-ii/fig9b_feature_distributions_4panel.png" class="lightbox">
+    <img src="/artifacts/ferrum-ii/fig9b_feature_distributions_4panel.png" alt="Figure 11 — Flow feature distributions by attack class" />
+  </a>
+</div>
+
+**Figure 11.** Flow feature distributions by attack class. Attack traffic clusters at 58–66 bytes (header-only packets), while benign flows span 64–1,400 bytes. The classes are trivially separable in feature space.
+
+---
+
+<br />
+
+## 6. Related Work
+
+**GPU-accelerated packet processing.** Kalia et al. (2015) demonstrated GPU-based packet classification using DPDK for ingestion, achieving high throughput but requiring CPU-mediated transfer to the GPU. PacketShader (Han et al., 2010) used GPUs for routing and IPsec but relied on CPU-side packet capture. Our work differs by eliminating the CPU from the packet path entirely via GPUDirect RDMA.
+
+**GPUDirect RDMA in networking.** GPUDirect RDMA has been used in HPC (MPI implementations, GPU-to-GPU communication across InfiniBand) and in signal processing (radio astronomy, software-defined radio). Its application to network security monitoring — where raw Ethernet frames are the input, not structured data — is less explored.
+
+**ML-based network intrusion detection.** The literature on ML-IDS is extensive: random forests (Zhang et al., 2008), deep autoencoders (Javaid et al., 2016), CNNs on packet payloads (Wang et al., 2017), LSTMs on flow sequences (Yin et al., 2017). Most focus on detection accuracy using benchmark datasets (KDD Cup 99, CICIDS, UNSW-NB15). Few address the systems challenge of feeding packets to the model at line rate. Our contribution is primarily on the systems side — we demonstrate a data path that can sustain millions of packets per second with sub-100-microsecond latency to classification.
+
+**Active network defense.** Intrusion prevention systems (Snort, Suricata in IPS mode) generate response packets (TCP RST, ICMP Unreachable) on the CPU. Our response engine moves this to the GPU: CUDA kernels craft complete Ethernet frames with valid checksums, and RDMA transmits them. The detect-to-respond latency of 146–282 µs is possible because neither detection nor response requires CPU-side packet processing.
+
+---
+
+<br />
+
+## 7. Discussion
+
+### 7.1 Limitations
+
+**Synthetic training data.** The ML model was trained on traffic generated by our own sender program. SYN floods come from a single source IP at maximum rate; port scans are sequential; benign traffic uses uniform random distributions. Real attacks are slower, distributed, evasive. Real benign traffic is bursty and application-specific. The 99.8% accuracy number reflects the synthetic data distribution, not real-world performance. Replacing the model with one trained on captured traffic (e.g., CIC-IDS2017) would be a direct improvement — the pipeline supports it with no code changes, only new weights in `model.bin`.
+
+**Cooperative sender architecture.** Our ConnectX-3 Pro firmware (2.38.5000) reports `max_raw_ethy_qp: 0` — it cannot create raw Ethernet QPs that would allow capturing mirrored SPAN traffic directly via RDMA. We use a cooperative RDMA sender instead. The receive-side data path — NIC DMA into GPU VRAM, CUDA kernel processing — is identical to what a raw-Ethernet-capable NIC (ConnectX-4+) would provide. The limitation is the sender, not the receiver architecture.
+
+**Single-machine loopback.** Both NICs are in the same machine, connected by a DAC cable. In a deployment scenario, the sender would be a separate machine (or a network tap), and the RDMA connection would cross an actual network. The RDMA protocol is the same; only the physical path changes.
+
+**Four attack classes.** The system detects SYN floods, port scans, ICMP floods, and benign traffic. Real networks face hundreds of attack types. The MLP architecture supports arbitrary class counts — the only change is retraining with additional labeled data and adjusting the output layer size.
+
+---
+
+<br />
+
+### 7.2 What This Demonstrates
+
+The core result is not the ML model — it's the data path. Packets travel from a NIC directly into GPU VRAM, are parsed and analyzed by CUDA kernels, and response packets are crafted and transmitted back — all without the CPU touching packet data. The CPU utilization of 12.5% during sustained operation at 2.62M pps confirms that the CPU is nearly idle: it's only posting RDMA work requests and launching kernels.
+
+This architecture makes the GPU the sole owner of the packet processing pipeline. Any model that can be expressed as a CUDA kernel — MLPs, CNNs, transformers, autoencoders — can be dropped into the classify stage. The data is already in VRAM, formatted, and feature-extracted. The model just needs to read from the flow table and write a label.
+
+---
+
+<br />
+
+### 7.3 When This Matters
+
+Zero-copy NIC-to-GPU makes the most difference when:
+
+- **Latency is critical**: financial networks, real-time defense, time-sensitive alerts
+- **Throughput is high**: 10+ Gbps links where CPU parsing becomes the bottleneck
+- **The model is complex**: larger models benefit more from eliminated `cudaMemcpy` overhead
+- **The CPU has other work**: in our setup, 87.5% of CPU capacity remains available for other tasks
+
+It matters less when traffic rates are low (1 Gbps or below), when the model is trivial (a threshold check doesn't need a GPU), or when detection latency of 5–10 milliseconds is acceptable.
+
+---
+
+<br />
+
+## 8. Conclusion
+
+We built a complete network intrusion detection and prevention system where the CPU never touches packet data. Raw Ethernet frames arrive at a ConnectX-3 Pro NIC, travel via RDMA directly into Tesla P40 GPU VRAM, and are parsed, aggregated into flows, classified by a CUDA-resident neural network, and answered with GPU-crafted response packets — all at 2.62 million packets per second with 82-microsecond average latency.
+
+The 50× latency improvement over CPU-mediated processing comes from a single architectural change: putting the data where the compute is, instead of copying the data to where the compute is. `cudaMemcpy` accounts for over half the CPU baseline's latency. Eliminating it by having packets land in GPU memory from the start is the entire thesis, and the numbers confirm it.
+
+The system is approximately 3,000 lines of C/CUDA, runs on commodity server hardware, and requires no proprietary frameworks.
+
+---
+
+<br />
+
+## Appendix A: Hardware Configuration
+
+```
+PCIe Topology (nvidia-smi topo -m):
+
+         GPU0  NIC0  NIC1
+GPU0      X    PHB   PHB
+NIC0     PHB    X    PHB
+NIC1     PHB   PHB    X
+
+Legend: PHB = PCIe Host Bridge (same CPU root complex)
+```
+
+```
+VM Configuration (Proxmox VMID 104):
+
+  CPU:    host passthrough, 2 sockets × 8 cores = 16 cores
+  RAM:    32 GB
+  Disk:   64 GB virtio-scsi (thin provisioned)
+  GPU:    Tesla P40 (PCI 02:00, VFIO passthrough)
+  NIC 1:  ConnectX-3 Pro (PCI 03:00.0, VFIO passthrough)
+  NIC 2:  ConnectX-3 Pro (PCI 09:00.0, VFIO passthrough)
+  Mgmt:   virtio NIC on vmbr2 (192.168.100.104/24)
+```
+
+---
+
+<br />
+
+## Appendix B: RDMA Baseline Measurements
+
+| Test | Target Memory | Result |
+|---|---|---|
+| `ib_write_bw` (64 KB, RC QP) | System RAM | 12.31 Gbps |
+| `ib_write_bw` (64 KB, RC QP) | GPU VRAM | 10.9 Gbps |
+| `ib_read_lat` (2B, RC QP) | System RAM | 2.18 µs |
+
+The 12% throughput difference between system RAM and GPU VRAM targets reflects the additional PCIe hop for peer-to-peer DMA (NIC → PCIe switch → GPU, vs. NIC → memory controller → RAM).
+
+---
+
+<br />
+
+## Appendix C: Source File Summary
+
+| File | Lines | Purpose |
+|---|---|---|
+| `gpu_ingestion_engine.cu` | 810 | Main receiver: VRAM ring buffer, CUDA pipeline, RDMA response path |
+| `pkt_sender.c` | 593 | Sender: 6 traffic generator modes, pcap replay, response monitor |
+| `cpu_baseline.cu` | 537 | CPU-mediated baseline for benchmark comparison |
+| `flow_tracker.cuh` | 201 | GPU hash table: 65K entries, FNV-1a, atomic aggregation |
+| `response_engine.cuh` | 272 | GPU packet crafting: checksums, RST/SYN-ACK/ICMP builders |
+| `classifier.cuh` | 189 | CUDA MLP: forward pass per flow, binary weight loader |
+| `rdma_common.h` | 160 | RDMA boilerplate: QP setup, transitions, TCP exchange |
+| `common.h` | 118 | Shared structs and constants |
+| `train_model.py` | 177 | Offline MLP training and weight export |
+| **Total** | **~3,100** | |

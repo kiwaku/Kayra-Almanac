@@ -1,0 +1,204 @@
+---
+title: "Ferrum: Layer I"
+id: ferrum-i
+year: 2026
+domain: ["security", "hardware"]
+status: "archived"
+featured: false
+summary: "<strong>SPAN-to-PCAP truth pipeline</strong> — end-to-end proof that mirrored switch traffic reaches a sensor VM faithfully. L2 and L3 validation with packet-level fidelity checks.<ul><li>GS105E SPAN mirror: ports 1+2 → port 5</li><li>L2 broadcast + L3 ICMP round-trip validated</li><li>Bridge MAC learning fix for mirror paths</li></ul>"
+artifacts:
+  diagram: ""
+images: []
+related: ["ferrum-ii", "hephaestus"]
+---
+
+End-to-end proof that traffic between attacker and victim VMs traversing a physical GS105E switch is faithfully mirrored to a sensor VM — and captured to PCAP on demand. This is the reusable capture primitive that every subsequent multi-VM project depends on.
+
+---
+
+<br />
+
+### At a glance
+
+- **Switch:** NETGEAR GS105E v2 — SPAN mirror rule: ports 1+2 → port 5
+- **Host:** Proxmox (Hephaestus), all work inside VMs on already-wired NICs
+- **Zero Proxmox-level changes** — all test traffic is in-guest only
+
+| VM | Role | NIC | Bridge | GS105E Port |
+|---|---|---|---|---|
+| Kali | Traffic source (attacker) | eth1 (`bc:24:11:c6:15:43`) | vmbr3 | port 1 |
+| Victim | Traffic sink (target) | enp6s18 (`bc:24:11:11:74:89`) | vmbr4 | port 2 |
+| Sniffer | Passive capture (sensor) | enp6s18 (`bc:24:11:9d:05:a5`) | vmbr1 | port 5 |
+
+---
+
+<br />
+
+### Data flow
+
+```
+Kali eth1 ──► vmbr3 ──► nic2 ──► GS105E port1
+                                       │
+                              ┌────────┼────────┐
+                              │ GS105E switch    │
+                              │ mirror: p1,p2→p5 │
+                              └────────┼────────┘
+                                       │
+                              ┌────────┴────────┐
+                              ▼                  ▼
+                        GS105E port2       GS105E port5
+                              │                  │
+                         nic3 ──► vmbr4     nic1 ──► vmbr1
+                              │                  │
+                    Victim enp6s18      Sniffer enp6s18
+                     (traffic sink)    (promisc, tcpdump)
+```
+
+- **Test traffic:** Kali eth1 → GS105E p1 → p2 → Victim enp6s18 (L2/L3, physical wire)
+- **Mirror copy:** GS105E mirrors p1+p2 → p5 → Sniffer enp6s18 (passive, promisc)
+- **Management:** All SSH via vmbr2 (192.168.100.0/24), completely separate from test traffic
+
+---
+
+<br />
+
+### Phase 1 — L2 smoke test
+
+No IP assignment needed. Kali sends gratuitous ARP broadcasts, sniffer captures via mirror.
+
+```bash
+# Start capture on sniffer (up to 30 frames with Kali's MAC)
+ssh sniffer 'sudo tcpdump -i enp6s18 -c 30 -w /tmp/span_l2_test.pcap ether src bc:24:11:c6:15:43 &'
+
+# Send L2 broadcast from Kali (5 gratuitous ARPs, link-local IP)
+ssh kali 'sudo arping -I eth1 -U -c 5 169.254.99.1'
+```
+
+**Result: PASS** — Sniffer captured all frames with source MAC `bc:24:11:c6:15:43`:
+
+```
+13:51:39.027179 enp6s18 B bc:24:11:c6:15:43 ethertype ARP (0x0806) Request who-has 169.254.99.1
+13:51:40.028283 enp6s18 B bc:24:11:c6:15:43 ethertype ARP (0x0806) Request who-has 169.254.99.1
+13:51:41.029429 enp6s18 B bc:24:11:c6:15:43 ethertype ARP (0x0806) Request who-has 169.254.99.1
+13:51:42.030601 enp6s18 B bc:24:11:c6:15:43 ethertype ARP (0x0806) Request who-has 169.254.99.1
+```
+
+Packet counter trace (3-packet test):
+
+| Hop | Before | After | Delta |
+|---|---|---|---|
+| proxmox nic1 rx | 2078 | 2081 | +3 |
+| proxmox tap103i0 tx | 84 | 87 | +3 |
+| guest enp6s18 rx | 80 | 83 | +3 |
+
+Full path confirmed: Kali eth1 → vmbr3 → nic2 → GS105E port1 → mirror → port5 → nic1 → vmbr1 → tap103i0 → sniffer enp6s18.
+
+---
+
+<br />
+
+### Phase 2 — L3 ICMP round-trip test
+
+Temporary IPs assigned in-guest (non-persistent, removed immediately after test).
+
+```bash
+# Assign temporary IPs
+ssh kali 'sudo ip addr add 10.99.99.1/24 dev eth1'
+ssh victim 'sudo ip addr add 10.99.99.2/24 dev enp6s18'
+
+# Start capture on sniffer
+ssh sniffer 'sudo tcpdump -i enp6s18 -c 20 -w /tmp/span_l3_test.pcap icmp &'
+
+# Ping from Kali → Victim via physical switch
+ssh kali 'ping -I eth1 -c 5 -W 2 10.99.99.2'
+
+# Rollback temporary IPs
+ssh kali 'sudo ip addr del 10.99.99.1/24 dev eth1'
+ssh victim 'sudo ip addr del 10.99.99.2/24 dev enp6s18'
+```
+
+**Result: PASS** — 5/5 pings, 0% loss, ~0.5ms avg. Sniffer captured 15 ICMP packets (both directions mirrored):
+
+```
+14:24:14.792379 enp6s18 P bc:24:11:c6:15:43 10.99.99.1 > 10.99.99.2: ICMP echo request
+14:24:14.792480 enp6s18 P bc:24:11:11:74:89 10.99.99.2 > 10.99.99.1: ICMP echo reply
+14:24:15.801979 enp6s18 P bc:24:11:c6:15:43 10.99.99.1 > 10.99.99.2: ICMP echo request
+14:24:15.802038 enp6s18 P bc:24:11:11:74:89 10.99.99.2 > 10.99.99.1: ICMP echo reply
+14:24:16.825767 enp6s18 P bc:24:11:c6:15:43 10.99.99.1 > 10.99.99.2: ICMP echo request
+14:24:16.825845 enp6s18 P bc:24:11:11:74:89 10.99.99.2 > 10.99.99.1: ICMP echo reply
+```
+
+---
+
+<br />
+
+### Issues found and resolved
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>GS105E port-based VLAN blocking inter-port forwarding</strong></summary>
+
+- **Symptom:** `ping` returned "Destination Host Unreachable" — ARP resolution failed. Victim enp6s18 rx_packets unchanged (frames never arrived).
+- **Root cause:** GS105E had port-based VLAN enabled, isolating ports. Mirror (port1→port5) worked because mirroring bypasses VLAN isolation, but normal L2 forwarding (port1↔port2) was blocked.
+- **Fix:** Disabled port-based VLAN on GS105E via web UI (192.168.0.239). All ports now in same broadcast domain.
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>vmbr1 bridge MAC learning conflict</strong></summary>
+
+- **Symptom:** ARP (broadcast) reached sniffer, but unicast ICMP was dropped.
+- **Root cause:** Bridge learned kali/victim MACs on nic1 from mirrored traffic. Unicast frames with those destination MACs were dropped as "same port" instead of forwarding to sniffer VM.
+- **Fix:** `bridge link set dev nic1 learning off` + permanent in `/etc/network/interfaces`:
+
+```bash
+# Under vmbr1 stanza in /etc/network/interfaces
+post-up bridge link set dev nic1 learning off
+```
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>tcpdump -i enp6s18 blind to received frames</strong></summary>
+
+- **Symptom:** `tcpdump -i enp6s18` captures 0 received packets despite kernel rx_packets incrementing.
+- **Root cause:** Likely virtio-net / AF_PACKET SOCK_RAW interaction with promiscuous mode on Debian 12 kernel 6.1.0-43.
+- **Workaround:** Always use `tcpdump -i any` with appropriate filters for sensor captures. Locally-generated frames on enp6s18 ARE visible to `-i enp6s18`.
+</details>
+
+---
+
+<br />
+
+### Validation summary
+
+| Criterion | Status |
+|---|---|
+| L2: Sniffer PCAP contains frames with Kali source MAC | PASS |
+| L3: 5/5 ping replies, 10+ ICMP packets in sniffer PCAP | PASS |
+| Fidelity: No truncation, correct MACs in every frame | PASS |
+| Cleanup: Temp IPs removed, no persistent state changes | PASS |
+
+| Failure Signature | Likely Cause | Diagnostic |
+|---|---|---|
+| Sniffer captures 0 frames | Mirror rule not active or wrong port mapping | Check GS105E mirror config |
+| Ping works but sniffer sees nothing | Mirror destination not receiving; NIC not promisc | `ip -d link show enp6s18` |
+| Sniffer sees requests but not replies | Only one direction mirrored | Verify mirror sources include BOTH port1 AND port2 |
+| Ping fails: "Destination Host Unreachable" | Temp IPs not assigned or ARP not resolving | Verify IPs; try `arping` |
+
+---
+
+<br />
+
+### Permanent changes
+
+1. **Proxmox `/etc/network/interfaces`:** Added `post-up bridge link set dev nic1 learning off` under vmbr1 stanza
+2. **GS105E switch:** Port-based VLAN disabled (all ports in same broadcast domain)
+
+---
+
+<br />
+
+### What this enables
+
+This pipeline is the capture primitive for all future Hephaestus multi-VM projects:
+- Validated SPAN mirror path for real-time traffic analysis
+- Foundation for Ferrum: Layer II (zero-copy NIC→GPU inference)
+- Reproducible: same scripts, same result, zero background noise

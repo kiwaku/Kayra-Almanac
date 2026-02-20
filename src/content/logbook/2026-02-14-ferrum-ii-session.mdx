@@ -1,0 +1,192 @@
+---
+title: "Ferrum II: Wire-to-Inference Build Session"
+date: "2026-02-14"
+tags: ["ai", "security", "hephaestus", "gpudirect", "rdma", "cuda", "connectx-3", "tesla-p40", "ferrum"]
+project: ferrum-ii
+images: []
+anomaly: false
+---
+
+Full build session for the zero-copy NIC→GPU IDS/IPS pipeline. Six phases from VM creation to autonomous GPU-native response engine. Two major platform blockers diagnosed and resolved (the "compatibility sandwich"). Final state: 2.7M pps sustained, 73µs avg latency, GPU-crafted response packets.
+
+<br />
+
+### Phase -1: VM creation
+
+Created VM 104 (`wire-to-inference`) on Proxmox instead of extending the existing CUDA VM — needed more CPU headroom for RDMA polling + CUDA + DPDK baselines.
+
+| Resource | Config |
+|---|---|
+| CPU | 2 sockets × 8 cores = 16 cores |
+| RAM | 32 GB |
+| GPU | Tesla P40 (hostpci0, VFIO passthrough) |
+| NIC 1 | ConnectX-3 Pro Card 1, `0000:03:00.0`, PCIe 3.0 x8 |
+| NIC 2 | ConnectX-3 Pro Card 2, `0000:09:00.0`, PCIe 2.0 x4 (M.2 riser) |
+| Mgmt | virtio on vmbr2, 192.168.100.104/24 |
+
+Initial OS: Ubuntu 22.04.5 with NVIDIA driver 550.163.01 + CUDA 12.4, rdma-core, nvidia-peermem. Post-install verified: GPU, RDMA (`rocep2s0` + `rocep3s0`), nvidia-peermem loaded, PCIe topology (GPU0 ↔ NIC0 ↔ NIC1 all PHB).
+
+---
+
+<br />
+
+### Phase 0: RDMA foundation
+
+Point-to-point DAC loop: `enp2s0` (10.10.10.1/30) ↔ `enp3s0` (10.10.10.2/30), 40 Gbps link.
+
+| Test | Result |
+|---|---|
+| `ibv_rc_pingpong` | ~5.5 Gbps, 12 µs/iter |
+| `ib_write_bw` | 12.31 Gb/s sustained (Card 2 PCIe 2.0 x4 bottleneck) |
+| `ib_read_lat` | 2.14 µs typical, 2.24 µs p99 |
+
+---
+
+<br />
+
+### Phase 1: GPUDirect RDMA — the compatibility sandwich
+
+Built perftest from source with CUDA support (`HAVE_CUDA=1`, `HAVE_CUDART=1`). First GPUDirect attempt: `ibv_reg_mr` returned EFAULT — GPU memory couldn't be mapped for RDMA.
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>Blocker 1: peerdirect_support=0 (default)</strong></summary>
+
+nvidia-peermem defaults `peerdirect_support=0` for newer mlx5/MLNX_OFED drivers. ConnectX-3 (mlx4) needs legacy mode.
+
+Fix: `modprobe nvidia_peermem peerdirect_support=1` + persistence via `/etc/modprobe.d/nvidia-peermem.conf`.
+
+Still failed — same EFAULT.
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>Blocker 2: kernel 5.15 has CONFIG_PCI_P2PDMA disabled</strong></summary>
+
+`grep PCI_P2PDMA /boot/config-5.15*` → `# CONFIG_PCI_P2PDMA is not set`. Installed HWE kernel 6.8.0-94-generic (`CONFIG_PCI_P2PDMA=y`). But then nvidia-peermem refused to load — compiled as a stub because the DKMS conftest for `ib_peer_memory_symbols` failed on 6.8's inbox RDMA stack.
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>The sandwich: no single Ubuntu 22.04 kernel works</strong></summary>
+
+| | Kernel 5.15 (stock) | Kernel 6.8 (HWE) |
+|---|---|---|
+| nvidia-peermem (inbox) | Loads, but `PCI_P2PDMA` disabled → EFAULT | `PCI_P2PDMA=y`, but peermem won't load (no IB peer mem API) |
+| MLNX_OFED 4.9 | Might work (uncertain 5.15 support) | Won't support 6.8 |
+| MLNX_OFED 5.x+ | Dropped ConnectX-3 entirely | Dropped ConnectX-3 entirely |
+
+Four options evaluated: (A) OFED 4.9 on older kernel, (B) custom kernel build, (C) custom nv_p2p kernel module, (D) CUDA IPC fallback.
+</details>
+
+**Decision: downgrade to Ubuntu 20.04 + MLNX_OFED 4.9.** Kernel 5.4 is in OFED 4.9's explicit support matrix. OFED provides its own mlx4 + IB peer memory API → nvidia-peermem conftest passes → full module, not stub. OFED brings its own P2P path — no need for kernel `CONFIG_PCI_P2PDMA`.
+
+Destroyed VM 104, recreated with Ubuntu 20.04.6. MLNX_OFED 4.9-7.1.0.0 installed. Hit one more issue: nvidia-peermem symbol version mismatch (first DKMS build used inbox IB symbols, OFED replaced them). Fix: `dkms remove nvidia/550.163.01 --all && dkms install nvidia/550.163.01`. After rebuild: nvidia-peermem loads with `peerdirect_support=1`.
+
+**GPUDirect RDMA Write BW: 1364 MB/s (~10.9 Gbps)** — `ibv_reg_mr` with GPU pointer succeeded. ~7% overhead vs system RAM baseline.
+
+Custom verification (`gpudirect_rdma_test.cu`): sender RDMA-writes 1000 packets with `0xDEADBEEF` magic directly into Tesla P40 VRAM. CUDA kernel verifies all packets in-place. **1000/1000 (100%) verified, 9.6 Gbps, 803k pps. Zero CPU copies.**
+
+---
+
+<br />
+
+### Phase 2: Continuous ingestion + CUDA parsing
+
+Raw Ethernet QP creation fails on this firmware (`max_raw_ethy_qp: 0`, fw 2.38.5000). Proceeded with cooperative RDMA sender (Card 2) instead — the receive-side DMA path (NIC → GPU VRAM) is identical.
+
+**Architecture:** Ring buffer in Tesla P40 VRAM — 65,536 slots × 1,536 bytes = 96 MB. 18-byte header per slot (pkt_len, 0xCAFE marker, seq_num, timestamp) + 1,518B payload. Doorbell in system RAM, sender RDMA-writes `write_head` every 64 packets. CUDA kernel parses Ethernet/IP/TCP/ICMP headers from GPU VRAM in real-time.
+
+| Test | Packets | Valid | Rate |
+|---|---|---|---|
+| 100K mixed | 100,000 | 100% | — |
+| 1M portscan | 1,000,000 | 100% | 2.73M pps, 33.6 Gbps |
+| 10s sustained | 27,894,592 | 100% | 2.79M pps, 33.9 Gbps |
+
+Ring wrapped ~426 times during 10s test, zero overruns.
+
+---
+
+<br />
+
+### Phase 3: GPU-side flow aggregation
+
+Added GPU-resident hash table (`flow_tracker.cuh`): 65,536 entries, open addressing with FNV-1a + linear probing. Per-flow features: packet/byte counts, timestamps, IAT stats, TCP flag counts. All updates via CUDA atomics.
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>Bug: PCIe write ordering</strong></summary>
+
+With flow tracking enabled, CUDA kernel read near-zero valid (0xCAFE) packets despite millions being sent. Root cause: doorbell RDMA writes (system RAM) and slot RDMA writes (GPU VRAM via GPUDirect) traverse different PCIe paths. Doorbell could arrive before slot data was visible.
+
+Fix: `IBV_SEND_FENCE` on all doorbell RDMA writes — forces NIC to complete prior writes before executing doorbell.
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>Bug: uint16_t atomic corruption</strong></summary>
+
+Flow feature fields (`size_min`/`size_max`, `syn_count`/`ack_count`) were corrupted. CUDA `atomicMin`/`atomicMax`/`atomicAdd` on uint16_t were cast to `(unsigned int *)`, performing 32-bit operations that overwrote adjacent fields.
+
+Fix: widened all uint16_t fields to uint32_t.
+</details>
+
+12s sustained mixed (33M packets): 2.76M pps, 35,303 active flows, latency p50=72 µs / p99=~135 µs. ~4% throughput overhead vs Phase 2.
+
+---
+
+<br />
+
+### Phase 4: ML model + detection
+
+Pure CUDA MLP classifier — no PyTorch, TensorRT, or cuDNN. 15→64→32→4 architecture, 3,236 parameters (13 KB binary). Classes: benign, SYN flood, port scan, ICMP flood. One CUDA thread per flow table entry, forward pass in registers.
+
+Training: offline sklearn MLPClassifier on 4 × 500K-packet CSVs (benign, SYN flood, port scan, ICMP flood). Balanced to 10K samples/class. **99.8% test accuracy**, 28 iterations.
+
+End-to-end detection: SYN flood 4/4 dominant flows detected, port scan 99.99%, ICMP flood 5/5, benign 99.6%. Full pipeline at 2.5M+ pps: RDMA → GPU VRAM → parse → flow aggregate → ML classify.
+
+---
+
+<br />
+
+### Phase 5: Benchmark
+
+Side-by-side comparison on identical 12s sustained mixed traffic:
+
+| Metric | GPU zero-copy | CPU baseline | Delta |
+|---|---|---|---|
+| Throughput | 2.69M pps | 2.80M pps | ~equal |
+| Latency avg | **73 µs** | 3,104 µs | **42× lower** |
+| Latency p99 | **116 µs** | 9,025 µs | **78× lower** |
+| cudaMemcpy | **0 µs** | 1,061 µs/cycle | eliminated |
+| CPU utilization | 12.3% | 11.0% | similar |
+
+CPU baseline slightly higher throughput (system RAM faster for sender writes) but latency 42–78× worse. The 1+ ms `cudaMemcpy` per classification cycle is the primary source — zero-copy eliminates it entirely.
+
+---
+
+<br />
+
+### Phase 6: GPU-native IPS (response engine)
+
+The GPU crafts response packets entirely in VRAM. When MLP classifies a flow as malicious, CUDA kernels build complete TCP RST, deceptive SYN-ACK, or ICMP Unreachable packets. CPU posts RDMA WRITEs from Card 1's QP back through the DAC cable to Card 2.
+
+RC QPs are bidirectional — Card 1's QP was already in RTS state. Just needed Card 2 to share a response receive buffer address + rkey during initial TCP handshake.
+
+| Attack | Response | How |
+|---|---|---|
+| SYN flood | TCP RST+ACK | Swap MAC/IP/port, RST+ACK flags |
+| Port scan | Deceptive SYN-ACK | GPU honeypot — every probe looks open |
+| ICMP flood | ICMP Dest Unreachable | Type 3 / Code 1, embeds original payload |
+| Benign | None | Pass-through |
+
+Response latency: 146–282 µs end-to-end. No throughput regression (2.8–3.0M pps). Benign false positives: 249/65,536 flows (0.38%) — single-packet SYN-only flows indistinguishable from portscan probes.
+
+---
+
+<br />
+
+### Final verified state
+
+- **OS:** Ubuntu 20.04.6 LTS, kernel 5.4.0-216-generic
+- **OFED:** MLNX_OFED_LINUX-4.9-7.1.0.0
+- **GPU:** Tesla P40, driver 550.163.01, CUDA 12.4
+- **nvidia-peermem:** loaded, `peerdirect_support=1`
+- **RDMA:** mlx4_0 (Card 1) + mlx4_1 (Card 2), both active, 40 Gbps
+- **PCIe:** GPU0 ↔ NIC0 ↔ NIC1 all PHB
+- **Mgmt:** 192.168.100.104/24, egress off, no default route

@@ -1,0 +1,143 @@
+---
+title: Moltbot
+id: moltbot
+year: 2026
+domain: ["ai", "security"]
+status: "active"
+featured: false
+badges: ["ai/ml"]
+summary: "<strong>Self-hosted AI agent orchestration</strong> platform built on the OpenClaw runtime. Multi-channel routing, file-governed workflows, and sandboxed tool execution for personal infrastructure automation.<ul><li>Gateway + channel adapters (Discord/Telegram/WhatsApp)</li><li>Skill-based architecture with workspace overrides</li><li>Local-first with Tesla P40 inference backend</li><li>Security-hardened: per-agent sandboxing, tool allowlists</li></ul>"
+artifacts:
+  diagram: ""
+images: []
+related: ["hephaestus"]
+---
+
+Moltbot is a self-hosted AI agent orchestration system built on the OpenClaw runtime, designed to run on Hephaestus as a persistent personal operator across multiple communication channels. It combines a gateway control plane, file-governed planning workflows, hybrid memory retrieval (vector + BM25), and a layered skill system to produce agents that externalize state to disk rather than relying on ephemeral chat context.
+
+The system is designed not as a chatbot, but as an operator-grade automation layer: agents read structured files, execute scoped tools under sandbox policies, and log every action. Token discipline and observability are first-class concerns. The architecture supports multi-agent routing with per-agent credentials, tool allowlists, and workspace isolation — treating skills as a supply chain and channels as an ingress vector.
+
+---
+
+<br />
+
+### At a glance
+
+- **Runtime:** OpenClaw (gateway + agent loop + skill loader + memory filesystem)
+- **Channels:** Discord, Telegram, WhatsApp (via gateway adapters)
+- **Compute backend:** Tesla P40 (local inference via Ollama) + Claude API (planning/synthesis)
+- **Memory:** Markdown files + JSONL session logs, hybrid retrieval (SQLite FTS5 BM25 + vector similarity)
+- **Skill system:** Bundled → managed/local → workspace (workspace overrides all; per-project overrides possible)
+- **Security posture:** Per-agent sandboxing, tool allow/deny precedence chain, read-only "reader agents" for untrusted content
+
+---
+
+<br />
+
+### Architecture
+
+The runtime assembles a system prompt every turn from: tool descriptions, skill metadata, workspace bootstrap files (AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md), timezone/runtime metadata. Bootstrap files are truncated at `bootstrapMaxChars` (default 20k chars) — rules must be short and structured or the tail is silently lost.
+
+**Agent scoping:** Each agent gets its own workspace, state directory, session store, and auth profiles. Credentials are per-agent; sharing requires explicit copying. Agent directories must never be reused across agents.
+
+**Tool policy precedence:** Profile → provider profile → global allow/deny → provider allow/deny → agent allow/deny → agent provider allow/deny. Each layer can further restrict, never re-grant.
+
+---
+
+<br />
+
+### Capabilities map
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>A) File-governed planning</strong> (planning-with-files pattern)</summary>
+
+- Externalize working state into persistent markdown: `plans/`, `tasks/`, `logs/`
+- Check for previous session context on startup; create/update plan files before non-trivial tool use
+- Avoid relying on chat history for continuity — files are cheap, durable, diffable
+- Keep files structured and small to avoid moving the bloat problem into bootstrap truncation
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>B) Skill layering</strong> (workspace overrides)</summary>
+
+- Three-layer model: bundled → managed/local → workspace
+- Workspace skills override global ones by name — per-repo behavior customization
+- Skills are "pay as you go": metadata in system prompt, full instructions loaded on demand
+- Almanac integration: global baseline conventions + per-repo workspace skill + per-project playbook
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>C) Token discipline & observability</strong></summary>
+
+- Built-in: `/status`, `/usage off|tokens|full`, `/context list|detail`
+- Operator contract: summarize tool output to files, keep chat summaries under 10 lines
+- External instrumentation: tokscale (cross-provider cost tracking), sherlock (API traffic interception)
+- Tool output is the biggest token leak — raw logs, HTML scrapes, verbose commands
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>D) Multi-agent routing & security</strong></summary>
+
+- Agent archetypes: main personal (broad tools, no sandbox), public/Discord-first (sandbox + strict allowlist), risky research (sandbox + throwaway workspace + minimal secrets)
+- Read-only "reader agent" pattern for untrusted content
+- Skills are a supply chain: 341+ malicious skills found in ClawHub campaigns (Koi Security, Jan 2026)
+- "Non-main" pitfall: group/channel sessions may trigger sandbox unexpectedly based on session keys
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>E) UI automation</strong> (browser skills, optional)</summary>
+
+- Native browser tool uses Chrome DevTools Protocol semantic accessibility trees (token-efficient, no screenshots)
+- Stealth browsing via Camoufox/Nodriver for anti-detection on LLM provider UIs
+- Ban mitigation: 2–10s delays, proxy rotation, phrase variation, limit 5–10 queries/day
+- Human-in-loop confirmation for risky browser actions; input-guard for prompt injection scanning
+- Hybrid routing: Claude API as base classifier, browser-only for niche providers (DeepSeek, Grok)
+</details>
+
+<details className="capability">
+  <summary><span className="chevron">▸</span><strong>F) Local inference backend</strong> (Tesla P40 / Ollama)</summary>
+
+- Local-first for execution tasks; reserve Claude API for planning/synthesis
+- Requires models with reliable tool-use capability (~48 GB VRAM for quality threshold)
+- Subagent + model routing: don't spend premium tokens on trivial actions
+- Maps to Proxmox: dedicated VM for inference with GPU passthrough
+</details>
+
+---
+
+<br />
+
+### Operator contract
+
+The minimal operational layer that makes Moltbot behave like an operator rather than a chatty model:
+
+1. **Plan-first:** Create/update `plans/.md` before any non-trivial tool use
+2. **Task ledger:** Maintain `tasks/.md` with checklist + next actions
+3. **Worklog:** Append to `logs/.md` after each tool run (inputs → result → decision)
+4. **Token safety:** Summarize tool output to files; keep chat summaries under 10 lines
+5. **Context safety:** If confusion rises, run `/context list`; if bloat rises, `/compact` with "preserve decisions/open questions"
+
+---
+
+<br />
+
+### Deployment
+
+Target deployment is on Hephaestus (Proxmox), mapping to the existing VM segmentation:
+- **Main agent VM:** Broad tools, local filesystem access, Ollama backend
+- **Public/Discord agent VM:** Sandboxed, strict tool allowlist, no secrets
+- **UI automation VM:** Isolated with proxies + input-guard, throwaway workspace
+
+Always-on process with channel adapters. Localhost bind for gateway. Gateway requires token/password auth (no "auth mode none" since recent breaking changes).
+
+---
+
+<br />
+
+### Security notes
+
+- Skills are a supply chain with active malware campaigns — audit with skillvet/Cisco Skill Scanner before install
+- Exposed gateways: 1,009+ found public via Shodan; always bind to localhost
+- Prompt injection via UI content is a real vector — use moltguard for web/email scanning
+- Keep web tools off for tool-enabled agents unless explicitly needed
+- Keep secrets out of prompts; use per-agent `auth-profiles.json`

@@ -1,0 +1,160 @@
+---
+title: "Dual ConnectX-3 Pro Operational: DAC Loop, PCIe Topology & Burn-in Plan"
+date: "2026-02-09"
+tags: ["hardware", "hephaestus", "pcie", "infiniband", "connectx-3", "iperf3", "rdma"]
+project: hephaestus
+images: []
+anomaly: false
+---
+
+Both Mellanox ConnectX-3 Pro HCAs (MT27520, fw 2.38.5000) enumerated and validated with a QSFP+ DAC loop. PCIe topology confirmed, link speeds characterized, jumbo MTU tested. Burn-in procedure defined.
+
+<br />
+
+### PCIe topology (known-good state)
+
+| HCA | BDF | Upstream Port | Link Negotiated | Notes |
+|---|---|---|---|---|
+| #1 (native slot) | `0000:03:00.0` | `0000:00:03.0` (CPU root complex) | **8GT/s x8** (Gen3 x8) | Full speed, no downgrade |
+| #2 (right M.2 via riser) | `0000:09:00.0` | `0000:00:1c.4` (PCH root port) | **5GT/s x4** (Gen2 x4) | Downgraded — caps real throughput |
+
+**Left M.2** does not reliably enumerate the HCA — either not NVMe-wired the same way, shares lanes with another device, or is electrically marginal with this riser/card combo. **Right M.2 is the only stable path.**
+
+Anti-amnesia topology block:
+- `03:00.0` = native slot = Gen3 x8
+- `09:00.0` = right M.2 via `00:1c.4` = Gen2 x4
+- `ens1` ↔ `enp9s0`, `ens1d1` ↔ `enp9s0d1`
+
+---
+
+<br />
+
+### Bandwidth reality
+
+- PCIe Gen2 x4 raw is ~20 Gbit/s, practical lower after overhead
+- M.2-attached HCA caps iperf3 multistream at **~11–12 Gbit/s** — PCIe link width/speed is the limiter, not the DAC
+- Good enough for: stability testing, RDMA plumbing, topology/passthrough work, burn-in, 10–20G class networking
+- **Not** good enough for: true 40GbE line-rate validation or stressing the card at its real ceiling
+
+---
+
+<br />
+
+### DAC loop validation
+
+Initial "link detected: no" traced to wrong port-to-port wiring — **port 1 must connect to port 1, port 2 to port 2**. After correction, all four netdevs show 40,000 Mb/s link detected: yes.
+
+Connectivity validated inside **network namespaces** (isolated from host bridges) using `198.18.0.0/15` (benchmark/testing range):
+- Set MTU 9000 on both ends
+- DF pings at 1500 / 4000 / 9000 payload sizes — all succeeded, 0% loss, sub-ms RTT
+
+---
+
+<br />
+
+### Driver state (known-good)
+
+- **Driver:** mlx4_en (Ethernet mode), mlx4_ib + ib_core + ib_uverbs loaded
+- **Firmware:** 2.38.5000 on both
+- **ibv_devinfo:** link_layer: Ethernet, ports down until interfaces brought up
+
+```
+HCA 0000:03:00.0
+  ens1   → port 0
+  ens1d1 → port 1
+
+HCA 0000:09:00.0
+  enp9s0   → port 0
+  enp9s0d1 → port 1
+```
+
+---
+
+<br />
+
+### Burn-in test plan
+
+**Phase A — TCP saturation (15 min):**
+
+```bash
+# Point-to-point /30 in namespaces
+ip addr add 10.10.10.1/30 dev ens1
+ip addr add 10.10.10.2/30 dev enp9s0
+ip link set ens1 mtu 9000
+ip link set enp9s0 mtu 9000
+
+# Server side
+iperf3 -s
+
+# Client side (8 streams, 15 min)
+iperf3 -c 10.10.10.2 -P 8 -t 900 --logfile /root/iperf_tcp_15m.log
+```
+
+**Phase B — UDP heater (10 min):**
+
+```bash
+iperf3 -c 10.10.10.2 -u -b 15G -l 1400 -t 600 --logfile /root/iperf_udp_10m.log
+```
+
+**Phase C — RDMA verbs (10 min):**
+
+```bash
+# Receiver
+ib_write_bw -d mlx4_0 -F --report_gbits --duration 600
+
+# Sender
+ib_write_bw -d mlx4_0 -F --report_gbits --duration 600 <RECEIVER_IP>
+```
+
+---
+
+<br />
+
+### Monitoring during burn-in
+
+**Terminal 1** — kernel/PCIe/AER watch:
+
+```bash
+dmesg -Tw | egrep -i 'mlx4|pcie|aer|error|reset|link down'
+```
+
+**Terminal 2** — interface counters (every 2s):
+
+```bash
+watch -n2 '
+echo "=== ip -s link ===";
+ip -s link show ens1 | sed -n "1,12p";
+ip -s link show enp9s0 | sed -n "1,12p";
+echo;
+echo "=== ethtool stats (errors) ===";
+ethtool -S ens1 2>/dev/null | egrep -i "err|drop|crc|discard|fault" | head -n 40;
+ethtool -S enp9s0 2>/dev/null | egrep -i "err|drop|crc|discard|fault" | head -n 40;
+'
+```
+
+**Thermal:** ConnectX-3 cards don't always expose hwmon sensors — use IR thermometer or careful touch test at 2m / 5m / 10m / 15m intervals. Note M.2 riser area and PCH heatsink heat separately.
+
+---
+
+<br />
+
+### Pass/fail criteria
+
+**Pass:**
+- Both HCAs remain enumerated after each stress phase
+- No sustained AER storms or link retrain loops
+- Throughput stable (no decay over time beyond small variance)
+- Thermals controllable (no runaway, no throttling symptoms)
+
+**Fail / investigate:**
+- HCA disappears from PCIe tree or link retrains repeatedly under load
+- Throughput collapses mid-run
+- Temps climb continuously without plateau
+
+---
+
+<br />
+
+### Next
+
+Run the burn-in phases. If Phase A stable, proceed to Phase B then C. If HCA#2 shows AER/retrain spam under load, treat as signal integrity / riser quality issue — prioritize physical mitigation (shorter riser, improved airflow, reseat, different power delivery).

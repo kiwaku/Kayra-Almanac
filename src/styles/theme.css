@@ -340,6 +340,14 @@ main, .shell, .content, .left, header, footer {
   margin:4px 0 6px 0;
 }
 
+/* Standalone images (tables, inline photos) — natural size, centered */
+.abstract > img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 1.5em auto;
+}
+
 /* Diagram sections in MDX content */
 .abstract .diagram-section {
   background: #f9f9f9;

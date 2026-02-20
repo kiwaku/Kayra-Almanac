@@ -1,13 +1,13 @@
 ---
-title: "Dual ConnectX-3 Pro Operational: DAC Loop, PCIe Topology & Burn-in Plan"
+title: "Dual ConnectX-3 Pro Operational: PCIe Topology & DAC Loop Validated"
 date: "2026-02-09"
-tags: ["hardware", "hephaestus", "pcie", "infiniband", "connectx-3", "iperf3", "rdma"]
+tags: ["hardware", "hephaestus", "pcie", "infiniband", "connectx-3"]
 project: hephaestus
 images: []
 anomaly: false
 ---
 
-Both Mellanox ConnectX-3 Pro HCAs (MT27520, fw 2.38.5000) enumerated and validated with a QSFP+ DAC loop. PCIe topology confirmed, link speeds characterized, jumbo MTU tested. Burn-in procedure defined.
+Both Mellanox ConnectX-3 Pro HCAs (MT27520, fw 2.38.5000) enumerated and validated with a QSFP+ DAC loop. PCIe topology confirmed, link speeds characterized, jumbo MTU clean.
 
 <br />
 
@@ -72,89 +72,64 @@ HCA 0000:09:00.0
 
 <br />
 
-### Burn-in test plan
+### Chipset root port detail
 
-**Phase A — TCP saturation (15 min):**
+With HCA#2 in the right M.2, the platform exposes `0000:00:1c.4` with bus `[09]` in `lspci -t`. When HCA#2 was in the left M.2, `00:1c.4` did not show as present — that downstream bus was occupied by a Realtek NIC on `08:00.0` under `00:1c.3`.
+
+Root port verification:
 
 ```bash
-# Point-to-point /30 in namespaces
-ip addr add 10.10.10.1/30 dev ens1
-ip addr add 10.10.10.2/30 dev enp9s0
+sudo lspci -s 00:1c.4 -vv | egrep -i "LnkCap|LnkSta|Width|Speed"
+```
+
+- **LnkCap:** Speed 5GT/s, Width x4
+- **LnkSta:** Speed 5GT/s, Width x1 (with mining riser) / Width x4 (with proper M.2 adapter)
+
+The PCH root port can do Gen2 x4. The mining riser only presented x1 lanes; the current adapter negotiates the full x4.
+
+---
+
+<br />
+
+### Namespace test setup
+
+Two NICs on the same host confuse Linux routing/ARP — must use network namespaces for clean point-to-point loop tests:
+
+```bash
+# Create namespace and move one interface into it
+ip netns add ib_test
+ip link set enp9s0 netns ib_test
+
+# Configure inside namespace
+ip netns exec ib_test ip addr add 198.18.0.2/30 dev enp9s0
+ip netns exec ib_test ip link set enp9s0 up
+ip netns exec ib_test ip link set enp9s0 mtu 9000
+
+# Configure host side
+ip addr add 198.18.0.1/30 dev ens1
+ip link set ens1 up
 ip link set ens1 mtu 9000
-ip link set enp9s0 mtu 9000
 
-# Server side
-iperf3 -s
-
-# Client side (8 streams, 15 min)
-iperf3 -c 10.10.10.2 -P 8 -t 900 --logfile /root/iperf_tcp_15m.log
+# Validate
+ping -c 5 -M do -s 8972 198.18.0.2
 ```
 
-**Phase B — UDP heater (10 min):**
-
-```bash
-iperf3 -c 10.10.10.2 -u -b 15G -l 1400 -t 600 --logfile /root/iperf_udp_10m.log
-```
-
-**Phase C — RDMA verbs (10 min):**
-
-```bash
-# Receiver
-ib_write_bw -d mlx4_0 -F --report_gbits --duration 600
-
-# Sender
-ib_write_bw -d mlx4_0 -F --report_gbits --duration 600 <RECEIVER_IP>
-```
+Use `198.18.0.0/15` (RFC 2544 benchmark/testing range) instead of random RFC1918 for a clean "this is lab-only" address plan.
 
 ---
 
 <br />
 
-### Monitoring during burn-in
+### What this setup is and isn't for
 
-**Terminal 1** — kernel/PCIe/AER watch:
+**Fine for:**
+- Ethernet throughput testing (iperf3)
+- Basic stability / heat tests
+- Driver/firmware behavior
+- DAQ-style packet work, mirroring, lab plumbing
+- RDMA verbs testing, IPoIB experiments
 
-```bash
-dmesg -Tw | egrep -i 'mlx4|pcie|aer|error|reset|link down'
-```
-
-**Terminal 2** — interface counters (every 2s):
-
-```bash
-watch -n2 '
-echo "=== ip -s link ===";
-ip -s link show ens1 | sed -n "1,12p";
-ip -s link show enp9s0 | sed -n "1,12p";
-echo;
-echo "=== ethtool stats (errors) ===";
-ethtool -S ens1 2>/dev/null | egrep -i "err|drop|crc|discard|fault" | head -n 40;
-ethtool -S enp9s0 2>/dev/null | egrep -i "err|drop|crc|discard|fault" | head -n 40;
-'
-```
-
-**Thermal:** ConnectX-3 cards don't always expose hwmon sensors — use IR thermometer or careful touch test at 2m / 5m / 10m / 15m intervals. Note M.2 riser area and PCH heatsink heat separately.
-
----
-
-<br />
-
-### Pass/fail criteria
-
-**Pass:**
-- Both HCAs remain enumerated after each stress phase
-- No sustained AER storms or link retrain loops
-- Throughput stable (no decay over time beyond small variance)
-- Thermals controllable (no runaway, no throttling symptoms)
-
-**Fail / investigate:**
-- HCA disappears from PCIe tree or link retrains repeatedly under load
-- Throughput collapses mid-run
-- Temps climb continuously without plateau
-
----
-
-<br />
-
-### Next
-
-Run the burn-in phases. If Phase A stable, proceed to Phase B then C. If HCA#2 shows AER/retrain spam under load, treat as signal integrity / riser quality issue — prioritize physical mitigation (shorter riser, improved airflow, reseat, different power delivery).
+**Not fine for:**
+- Validating true 40GbE line-rate performance
+- Stressing the card at its real ceiling
+- Anything requiring predictable high bandwidth through the M.2 path

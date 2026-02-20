@@ -1,0 +1,287 @@
+---
+title: "Dual HCA Burn-in Procedure: iperf3, RDMA & Thermal Inspection"
+date: "2026-02-09"
+tags: ["hardware", "hephaestus", "infiniband", "connectx-3", "iperf3", "rdma", "thermal"]
+project: hephaestus
+images: []
+anomaly: false
+---
+
+Structured burn-in test plan for the dual ConnectX-3 Pro setup. Three phases (TCP saturation, UDP heater, RDMA verbs) with parallel monitoring for PCIe errors, counter anomalies, and thermal behavior.
+
+<br />
+
+### Prerequisites
+
+Proxmox (Debian base) packages:
+
+```bash
+apt update
+apt install -y \
+  rdma-core infiniband-diags perftest ibutils \
+  iperf3 ethtool pciutils lm-sensors \
+  linux-cpupower numactl
+
+# Optional Mellanox introspection
+apt install -y mstflint
+
+systemctl enable --now rdma
+```
+
+Bring ports up and verify link before any test:
+
+```bash
+ip link set ens1 up
+ip link set enp9s0 up
+
+for i in ens1 enp9s0; do
+  echo "=== $i ==="
+  ethtool $i | egrep -i 'Link detected|Speed|Duplex|Port'
+done
+```
+
+If "Link detected: no" — check cable, port pairing (1↔1, 2↔2), and that the far end is up. ConnectX-3 QSFP ports won't link without a real partner.
+
+---
+
+<br />
+
+### Baseline capture (run before stressing)
+
+```bash
+echo "=== System ==="
+date
+uname -a
+
+echo "=== Mellanox inventory + PCIe negotiated links ==="
+lspci -Dnn | egrep -i "mellanox|connectx|infiniband"
+for HCA in $(lspci -Dnn | awk '/Mellanox|ConnectX|InfiniBand|15b3/{print $1}'); do
+  echo "----- $HCA -----"
+  UP_PATH=$(readlink -f /sys/bus/pci/devices/$HCA/..)
+  echo "upstream: $(basename "$UP_PATH")"
+  sudo lspci -s $HCA -vv | egrep -i 'LnkCap:|LnkSta:'
+done
+
+echo "=== PCIe tree (top) ==="
+lspci -t -nn | sed -n '1,140p'
+
+echo "=== RDMA / IB inventory ==="
+lsmod | egrep -i 'mlx4|ib_|rdma' || true
+ls -l /sys/class/infiniband 2>/dev/null || true
+ibv_devinfo 2>/dev/null || true
+ibstat 2>/dev/null || true
+```
+
+Also confirm the second HCA's driver binding:
+
+```bash
+ethtool -i enp9s0
+ethtool -i enp9s0d1
+```
+
+---
+
+<br />
+
+### Network setup (point-to-point in namespaces)
+
+```bash
+ip addr add 10.10.10.1/30 dev ens1
+ip addr add 10.10.10.2/30 dev enp9s0
+
+ip link set ens1 mtu 9000
+ip link set enp9s0 mtu 9000
+
+ping -c 3 -M do -s 8972 10.10.10.2
+```
+
+If jumbo ping fails, drop MTU to 1500 and proceed. Jumbo is nice but not required for thermal burn-in.
+
+---
+
+<br />
+
+### Phase A — TCP saturation (15 min)
+
+Server:
+
+```bash
+iperf3 -s
+```
+
+Client (8 parallel streams, 15 minutes):
+
+```bash
+iperf3 -c 10.10.10.2 -P 8 -t 900 --logfile /root/iperf_tcp_15m.log
+```
+
+---
+
+<br />
+
+### Phase B — UDP heater (10 min)
+
+Pushes packet processing hard — good at exposing marginal links and heating ASICs. Start at 15G; step down if it drops hard.
+
+```bash
+iperf3 -c 10.10.10.2 -u -b 15G -l 1400 -t 600 --logfile /root/iperf_udp_10m.log
+```
+
+---
+
+<br />
+
+### Phase C — RDMA verbs (10 min)
+
+IB-native measurement. Replace `mlx4_0` with whatever `ibv_devinfo` reports.
+
+Receiver:
+
+```bash
+ib_write_bw -d mlx4_0 -F --report_gbits --duration 600
+```
+
+Sender:
+
+```bash
+ib_write_bw -d mlx4_0 -F --report_gbits --duration 600 <RECEIVER_IP>
+```
+
+`--duration 600` = 10 minutes — enough to see thermal trends. `-F` forces CPU frequency scaling interactions to be less misleading.
+
+---
+
+<br />
+
+### Monitoring (run in parallel with all phases)
+
+**Terminal 1** — kernel/PCIe/AER watch:
+
+```bash
+dmesg -Tw | egrep -i 'mlx4|pcie|aer|error|reset|link down'
+```
+
+**Terminal 2** — interface counters (every 2s):
+
+```bash
+watch -n2 '
+echo "=== ip -s link ===";
+ip -s link show ens1 | sed -n "1,12p";
+ip -s link show enp9s0 | sed -n "1,12p";
+echo;
+echo "=== ethtool stats (errors) ===";
+ethtool -S ens1 2>/dev/null | egrep -i "err|drop|crc|discard|fault" | head -n 40;
+ethtool -S enp9s0 2>/dev/null | egrep -i "err|drop|crc|discard|fault" | head -n 40;
+'
+```
+
+---
+
+<br />
+
+### Thermal telemetry
+
+Try to locate mlx4 hwmon sensors:
+
+```bash
+for HCA in 0000:03:00.0 0000:09:00.0; do
+  echo "## $HCA"
+  DEV=/sys/bus/pci/devices/$HCA
+  find "$DEV" -maxdepth 3 -type f -name 'temp*_input' -o -name 'temp*_label' 2>/dev/null
+done
+```
+
+If hwmon paths exist, live-watch them:
+
+```bash
+watch -n 1 'paste <(date) /sys/.../temp1_input'
+```
+
+ConnectX-3 cards don't always expose temperature sensors via standard Linux interfaces. Physical inspection:
+- **IR thermometer** or **thermal cam** preferred
+- Careful touch test if nothing else available (NIC heatsinks can get "surprisingly unfriendly")
+- Check at **2m / 5m / 10m / 15m** intervals during each phase
+- Note separately: **HCA heatsink**, **M.2 riser area**, **PCH heatsink**
+
+---
+
+<br />
+
+### Results template
+
+Fill after each phase:
+
+**Phase A (iperf3 TCP):**
+- Duration: ___
+- Streams: ___
+- Avg Gbps: ___ / Peak Gbps: ___
+- Errors/retries/AER: yes/no (paste excerpt)
+- HCA#1 temp: min/avg/max ___
+- HCA#2 temp: min/avg/max ___
+- Hottest point: ___
+
+**Phase B (iperf3 UDP):**
+- Duration: ___
+- Target rate: ___
+- Loss %: ___
+- AER chatter: yes/no
+
+**Phase C (ib_write_bw):**
+- Duration: ___
+- Avg Gbps: ___
+- Stability (drops? renegotiations?): ___
+- Temp deltas: ___
+
+---
+
+<br />
+
+### Pass/fail criteria
+
+**Pass:**
+- Both HCAs remain enumerated after each stress phase
+- No sustained AER storms or link retrain loops
+- Throughput stable (no decay over time beyond small variance)
+- Thermals controllable (no runaway, no throttling symptoms)
+
+**Fail / investigate:**
+- HCA disappears from PCIe tree or link retrains repeatedly under load
+- Throughput collapses mid-run
+- Temps climb continuously without plateau
+
+---
+
+<br />
+
+### Post-run artifact dump
+
+```bash
+mkdir -p /root/hca_burnin_$(date +%F_%H%M)
+OUT=/root/hca_burnin_$(date +%F_%H%M)
+
+cp /root/iperf_* "$OUT/" 2>/dev/null || true
+dmesg -T | tail -n 2000 > "$OUT/dmesg_tail.txt"
+
+lspci -s 0000:09:00.0 -vv > "$OUT/lspci_09_00_0_vv.txt"
+lspci -s 0000:03:00.0 -vv > "$OUT/lspci_03_00_0_vv.txt"
+
+ip -s link show ens1 > "$OUT/ip_s_ens1.txt"
+ip -s link show enp9s0 > "$OUT/ip_s_enp9s0.txt"
+
+ethtool ens1 > "$OUT/ethtool_ens1.txt"
+ethtool enp9s0 > "$OUT/ethtool_enp9s0.txt"
+
+ethtool -S ens1 > "$OUT/ethtoolS_ens1.txt" 2>/dev/null || true
+ethtool -S enp9s0 > "$OUT/ethtoolS_enp9s0.txt" 2>/dev/null || true
+
+tar -czf "$OUT.tgz" -C "$(dirname "$OUT")" "$(basename "$OUT")"
+echo "Saved: $OUT.tgz"
+```
+
+---
+
+<br />
+
+### Next
+
+If Phase A stable, run Phase B then C. If HCA#2 shows AER/retrain spam under load, treat as signal integrity / riser quality issue — prioritize physical mitigation (shorter/better riser, improved airflow, reseat, different power delivery to riser).

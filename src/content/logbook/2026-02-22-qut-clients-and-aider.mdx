@@ -1,0 +1,218 @@
+---
+title: "Qut: Clients, Claude Code Failure, and the Aider Pivot"
+date: "2026-02-22"
+tags: ["ai", "aider", "claude-code", "hephaestus", "qwen"]
+project: qut
+images: []
+anomaly: false
+---
+
+Setting up client machines to talk to the Qut inference server — Mac via SSH tunnel, Kali VM direct. Claude Code connected but couldn't use tools with the local model, leading to a pivot to Aider for agentic coding.
+
+<br />
+
+### Mac client: SSH tunnel + claude-local
+
+Added port forwards to `~/.ssh/config` under `Host cuda`:
+```
+Host cuda
+  HostName 192.168.100.100
+  User kudakuda
+  ProxyJump bastion
+  LocalForward 4000 127.0.0.1:4000   # LiteLLM (for claude-local)
+  LocalForward 3000 127.0.0.1:3000   # Open WebUI (browser)
+  LocalForward 8080 127.0.0.1:8080   # llama-server (for aider-local, added later)
+  ExitOnForwardFailure yes
+  ServerAliveInterval 30
+```
+
+Port 8080 was added later when we pivoted to Aider.
+
+Tunnel: `ssh -fN cuda` (background, no shell) or `ssh cuda` (tunnel + interactive shell). The tunnel stays open as long as the SSH session lives.
+
+**claude-local alias** in `~/.zshrc`:
+```bash
+alias claude-local='
+  ANTHROPIC_AUTH_TOKEN="sk-XXXX"
+  ANTHROPIC_BASE_URL="http://localhost:4000"
+  ANTHROPIC_MODEL="claude-3-5-sonnet-20241022"
+  ANTHROPIC_SMALL_FAST_MODEL="claude-3-5-sonnet-20241022"
+  claude'
+```
+
+Key discovery: Claude Code requires `ANTHROPIC_AUTH_TOKEN`, not `ANTHROPIC_API_KEY`. Using the wrong env var causes a "Not logged in" error after sending the first prompt, even though the initial screen looks fine.
+
+---
+
+<br />
+
+### Kali VM client: direct connection
+
+Kali (192.168.100.20) is on vmbr2, so it reaches the CUDA VM directly — no SSH tunnel needed.
+
+**Claude Code install:**
+```bash
+sudo egress-on
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+sudo npm install -g @anthropic-ai/claude-code
+sudo egress-off
+```
+
+Kali's `kirin` user has scoped NOPASSWD sudoers (arping, ip, tcpdump, etc.) but not for apt/npm. Temporarily changed `/etc/sudoers.d/99-kirin` to `NOPASSWD: ALL` for the installation, then rolled it back afterward.
+
+**Shell confusion:** Kali uses zsh by default. First attempt added the alias to `~/.bashrc`, which caused `shopt` and `complete` errors when sourced from zsh. The alias also broke when split across multiple lines in zsh.
+
+Fix: single-line alias in `~/.zshrc`:
+```bash
+alias claude-local='
+  ANTHROPIC_AUTH_TOKEN="sk-XXXX"
+  ANTHROPIC_BASE_URL="http://192.168.100.100:4000"
+  ANTHROPIC_MODEL="claude-3-5-sonnet-20241022"
+  ANTHROPIC_SMALL_FAST_MODEL="claude-3-5-sonnet-20241022"
+  claude'
+```
+
+**Claude Code onboarding bypass:** Claude Code shows a login/signup wizard on first run, even with env vars set. Fixed by creating `~/.claude.json`:
+```json
+{"hasCompletedOnboarding": true}
+```
+
+---
+
+<br />
+
+### The tool-calling problem
+
+Claude Code connected to the local Qwen3-Coder model and could chat. But when asked to do anything agentic — read a file, edit code, run a command — it entered an infinite loop:
+
+1. Claude Code sends a prompt asking the model to use tools
+2. Qwen3-Coder generates XML-style function calls: `<function=Read>{"file_path": "..."}`
+3. Claude Code doesn't recognize this format — it expects its own internal tool-calling protocol
+4. The tool never executes
+5. The model tries again, loops forever
+
+**Root cause:** Claude Code's tool-calling protocol is tightly coupled to Anthropic's API format. Local models (even good ones like Qwen3-Coder) don't implement this protocol. LiteLLM translates the API envelope but not the tool-calling semantics.
+
+This means `claude-local` is chat-only in practice. It can answer questions and discuss code, but it cannot read files, edit code, run tests, or do any of the agentic things that make Claude Code useful.
+
+**Decision:** Keep `claude-local` for chat (it still works for that), but find a proper agentic coding tool that works with local models.
+
+---
+
+<br />
+
+### The Aider pivot
+
+Aider (aider-chat) is purpose-built for agentic coding with local models. It has native support for OpenAI-compatible endpoints like llama-server. It talks directly to port 8080 (bypassing LiteLLM entirely) and handles its own file reading, editing, and git operations.
+
+Architecture change:
+```
+Before:  Client → LiteLLM :4000 → llama-server :8080
+After:   Client → llama-server :8080 (direct, Aider handles everything)
+```
+LiteLLM is still there for `claude-local` chat, but Aider skips it entirely.
+
+Key advantages: works reliably with Qwen3-Coder-30B-A3B, multi-file edits, auto-commits to git, architect mode (plan first, then execute), no tool-calling protocol mismatch.
+
+---
+
+<br />
+
+### Aider install: Kali VM
+
+**Attempt 1 — pip (failed):**
+```bash
+pip install --user --break-system-packages aider-chat
+```
+Kali has Python 3.13. pip resolved to `aider-chat==0.16.0` (ancient, from 2023) which pins `numpy==1.24.3`. numpy 1.24.3 doesn't build on Python 3.13. Failed with `BackendUnavailable: Cannot import 'setuptools.build_meta'`.
+
+**Attempt 2 — pipx (failed):** Same problem — pulled the same ancient 0.16.0 version.
+
+**Attempt 3 — pip with --no-cache-dir (failed):** Still resolved to 0.16.0.
+
+**Investigation:** `pip3 index versions aider-chat` showed only version 0.16.0. The real latest is 0.86.2. Even with `--index-url https://pypi.org/simple/`, pip on Kali only saw the ancient version. Likely a pip/resolver bug on Python 3.13 where it can't see newer versions that don't declare 3.13 support in metadata.
+
+**Attempt 4 — official install script (worked):**
+```bash
+curl -LsSf https://aider.chat/install.sh | sh
+```
+This script downloads and installs `uv` (a fast Python package manager), uses `uv tool install` with its own Python 3.12 to install aider, and puts it in `~/.local/bin/`. Result: `aider 0.86.2` installed successfully.
+
+**Lesson:** On Python 3.13+ systems, always use the official install script. Don't bother with pip/pipx — they'll pull an ancient version that can't build on modern Python.
+
+Alias in `~/.zshrc`:
+```bash
+alias aider-local='
+  OPENAI_API_BASE=http://192.168.100.100:8080/v1
+  OPENAI_API_KEY=sk-XXXX
+  aider
+    --model openai/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf
+    --architect --auto-commits --git'
+```
+
+The model name must match exactly what llama-server reports via its `/v1/models` endpoint. Sudoers rolled back to scoped NOPASSWD after install, egress disabled.
+
+---
+
+<br />
+
+### Aider install: Mac
+
+**Attempt 1 — aider-install (failed):** `aider-install` tried to download packages but the Mac had only 133MB free on a 228GB drive. Failed with `No space left on device (os error 28)` during extraction of the `litellm` package.
+
+After freeing space manually, re-ran `aider-install`. All 109 packages downloaded and installed successfully. `aider 0.86.2` available at `~/.local/bin/aider`.
+
+Added port 8080 forward to SSH config and restarted the tunnel:
+```bash
+pkill -f "ssh -fN cuda"; ssh -fN cuda
+```
+
+Alias in `~/.zshrc`:
+```bash
+alias aider-local='
+  OPENAI_API_BASE=http://localhost:8080/v1
+  OPENAI_API_KEY=sk-XXXX
+  aider
+    --model openai/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf
+    --architect --auto-commits --git'
+```
+
+Note: Mac uses `localhost:8080` (tunneled), while Kali uses `192.168.100.100:8080` (direct on vmbr2).
+
+---
+
+<br />
+
+### Testing
+
+**Kali:**
+```
+$ aider-local
+Aider v0.86.2
+Model: openai/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf with architect edit format
+```
+DNS errors for pypi.org and github.com are expected (egress is off) and harmless — Aider doesn't need internet to function. Tested file creation, reading existing files, and editing — all working.
+
+**Mac:** Same result. Model connected, agentic coding works.
+
+**Open WebUI:** Accessed `http://localhost:3000` in browser. Admin → Connections → OpenAI API Base URL: `http://172.17.0.1:8080/v1`, key: `sk-XXXX`. Model appeared and chat works.
+
+---
+
+<br />
+
+### Mistakes and lessons
+
+| Mistake | Lesson |
+|---------|--------|
+| Used `ANTHROPIC_API_KEY` | Claude Code uses `AUTH_TOKEN`, not `API_KEY` |
+| Alias in `~/.bashrc` on Kali | Check `echo $SHELL` — Kali defaults to zsh |
+| Multi-line alias in zsh | zsh breaks on `\` continuations; use single line |
+| `-fa` flag for llama-server | Newer llama.cpp wants `--flash-attn on` |
+| `hf download` for large model | xet stalls; use `wget` with `/resolve/main/` |
+| Claude Code + local model tools | Protocol is Anthropic-only; use Aider instead |
+| pip/pipx on Python 3.13 | Use official install script (bundles uv + Py 3.12) |
+| Missing `hasCompletedOnboarding` | Create `~/.claude.json` to skip the wizard |
+| Proxmox backups filled root disk | Set retention policy for `/var/lib/vz/dump/` |
+| Mac disk too full for install | uv needs ~500MB+; monitor free space |

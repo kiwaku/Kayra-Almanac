@@ -14,6 +14,16 @@ export async function getStaticPaths() {
 const { project } = Astro.props;
 const { data, body } = project;
 const { Content } = await project.render();
+
+const allProjects = await getCollection('projects');
+const relatedProjects = (data.related || [])
+  .map(id => allProjects.find(p => p.data.id === id))
+  .filter((p): p is NonNullable<typeof p> => !!p);
+
+const allLogs = await getCollection('logbook');
+const projectLogs = allLogs
+  .filter(log => log.data.project === data.id)
+  .sort((a, b) => b.data.date.localeCompare(a.data.date));
 ---
 <Base title={`${data.title} — Project`} rawMarkdown={body}>
   <article class="project-page">
@@ -50,10 +60,28 @@ const { Content } = await project.render();
       </div>
     )}
 
-    {/* Related materials */}
+    {/* Logbook entries */}
+    {projectLogs.length > 0 && (
+      <div class="related-section">
+        <h2>Logbook</h2>
+        <ul>
+          {projectLogs.map(log => (
+            <li>
+              <span class="log-date">{log.data.date}</span>
+              <a href={`/logbook#${log.id.split('/').pop()}`}>{log.data.title}</a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    )}
+
+    {/* Related projects + materials */}
     <div class="related-section">
-      <h2>Related Material</h2>
+      <h2>Related</h2>
       <ul>
+        {relatedProjects.map(p => (
+          <li><a href={`/projects/${p.data.id}`}>{p.data.title}</a> <span class="muted">— {p.data.status}</span></li>
+        ))}
         {data.artifacts?.readme && (
           <li><a href={data.artifacts.readme}>README</a></li>
         )}
@@ -147,6 +175,13 @@ const { Content } = await project.render();
 
   .metrics-section li {
     margin-bottom: 0.5em;
+  }
+
+  .log-date {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 11px;
+    color: #666;
+    margin-right: 8px;
   }
 
   .muted {

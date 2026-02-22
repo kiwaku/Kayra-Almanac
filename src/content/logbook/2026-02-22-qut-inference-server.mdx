@@ -1,0 +1,204 @@
+---
+title: "Qut: Inference Server Build"
+date: "2026-02-22"
+tags: ["ai", "hephaestus", "inference", "proxmox", "llama.cpp", "qwen"]
+project: qut
+images: []
+anomaly: false
+---
+
+Standing up the CUDA VM as a dedicated inference server for Qut — model swap, service configuration, systemd auto-start, and a Proxmox crash along the way.
+
+<br />
+
+### Starting point
+
+The CUDA VM (192.168.100.100, Ubuntu 22.04.5, Tesla P40 24GB) already had a partial setup from a previous project: llama.cpp built from source with CUDA CC 6.1, an older model (Qwen2.5-32B-Instruct-IQ4_XS, 17GB), Open WebUI in Docker on 127.0.0.1:3000, NVIDIA driver 535.288.01 with CUDA 12.2. No LiteLLM, no Node.js, no huggingface-cli. Only 7.1GB free disk — this became a recurring theme.
+
+The goal: follow a community guide for running Claude Code with a local model (Qwen3-Coder-30B-A3B on the P40), adjusted for the multi-VM Proxmox lab.
+
+---
+
+<br />
+
+### Architecture decision
+
+The guide suggested installing everything on the CUDA VM — inference server, Claude Code, project files. After reading @sudoingX's thread on the "flipped" architecture, we course-corrected: CUDA VM serves inference only. No project files, no coding agents. Client VMs (Kali, Victim, any future VM) run the coding tools locally and talk to CUDA for completions. Mac connects via SSH tunnel. Cleaner separation of concerns, and if the inference server were somehow compromised, there's nothing useful on it.
+
+---
+
+<br />
+
+### Phase 1: Sudoers (the chicken-and-egg)
+
+Needed passwordless sudo for `kudakuda` on the CUDA VM so we could install packages remotely via SSH (non-interactive). The user was in the `sudo` group but required a password — SSH non-interactive commands can't provide passwords.
+
+First attempt: scoped NOPASSWD rules listing specific commands (apt, pip, systemctl, etc.). Failed because `/etc/sudoers` has `%sudo ALL=(ALL:ALL) ALL` which matches first for unlisted commands — sudo still prompted for a password.
+
+Fix: full NOPASSWD in `/etc/sudoers.d/99-kudakuda`:
+```
+kudakuda ALL=(ALL) NOPASSWD: ALL
+```
+Acceptable for a lab inference VM with no sensitive data.
+
+---
+
+<br />
+
+### Phase 2: LiteLLM and dependencies
+
+CUDA toolkits were installed (11.8 + 12.4) but not in PATH. Added to `~/.bashrc`:
+```bash
+export PATH="/usr/local/cuda-12.4/bin:$PATH"
+export LD_LIBRARY_PATH="/usr/local/cuda-12.4/lib64:$LD_LIBRARY_PATH"
+```
+
+Enabled egress (`sudo egress-on`) and installed LiteLLM:
+```bash
+pip install litellm
+```
+Installed to `~/.local/bin/litellm`. This proxy translates the OpenAI-compatible API into something that looks like the Anthropic API, which is what Claude Code expects.
+
+Tried installing `huggingface-cli` for model downloads — turns out the newer `huggingface_hub` package installs the command as `hf`, not `huggingface-cli`. Found at `~/.local/bin/hf`.
+
+---
+
+<br />
+
+### Phase 3: Model swap
+
+Deleted the old model to free space:
+```bash
+rm ~/llm/models/Qwen2.5-32B-Instruct-IQ4_XS.gguf   # freed ~17GB
+```
+
+**Attempt 1 — hf cli (failed):**
+```bash
+hf download Qwen/Qwen3-Coder-30B-A3B-Instruct-GGUF \
+  Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf \
+  --local-dir ~/llm/models/Qwen3-Coder-30B-A3B
+```
+Used the new `xet` protocol and kept stalling around 6-18GB. Tried multiple times, killed processes, cleaned lock files and incomplete downloads. Never completed.
+
+**Attempt 2 — wget (worked):**
+```bash
+wget -O ~/llm/models/Qwen3-Coder-30B-A3B/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf \
+  "https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct-GGUF/resolve/main/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf"
+```
+Direct wget to the HuggingFace CDN worked first try. 18.6GB downloaded successfully.
+
+**Lesson:** When `hf download` with xet protocol stalls on large files, fall back to plain wget with the `/resolve/main/` URL pattern.
+
+---
+
+<br />
+
+### Intermission: Proxmox crash
+
+During the model download, the Proxmox host crashed. Root cause: a backup job had accumulated 69GB of VM backups in `/var/lib/vz/dump/` on a 94GB root partition. VM 111's backup failed with a broken pipe, `pveproxy` spammed "No space left on device", and the host froze.
+
+Fix: deleted all backups (`rm /var/lib/vz/dump/vzdump-*`), freed 69GB. After reboot, the CUDA VM came back and the download was retried successfully. TODO: set up backup retention policy to prevent recurrence.
+
+---
+
+<br />
+
+### Phase 4: Services
+
+**llama-server test run:**
+```bash
+~/llama.cpp/build/bin/llama-server \
+  -m ~/llm/models/Qwen3-Coder-30B-A3B/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf \
+  --port 8080 -ngl 99 -c 32768 --host 0.0.0.0 --flash-attn on --jinja
+```
+
+Gotcha: the `-fa` shorthand for flash attention was changed to `--flash-attn on` in newer llama.cpp builds. The old flag caused a startup failure.
+
+**LiteLLM config** (`~/litellm_config.yaml`):
+```yaml
+model_list:
+  - model_name: claude-3-5-sonnet-20241022
+    litellm_params:
+      model: openai/llama3
+      api_base: http://localhost:8080/v1
+      api_key: sk-XXXX
+      temperature: 0.7
+      max_tokens: 8192
+      top_p: 0.95
+```
+The `model_name` is `claude-3-5-sonnet-20241022` because Claude Code sends that model name in requests. LiteLLM maps it to the local llama-server.
+
+**Systemd units** — both set to auto-start on boot:
+
+`/etc/systemd/system/llama-server.service`:
+```ini
+[Unit]
+Description=llama.cpp inference server
+After=network.target
+
+[Service]
+Type=simple
+User=kudakuda
+ExecStart=/home/kudakuda/llama.cpp/build/bin/llama-server \
+  -m /home/kudakuda/llm/models/Qwen3-Coder-30B-A3B/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf \
+  --port 8080 -ngl 99 -c 32768 --host 0.0.0.0 --flash-attn on --jinja
+Restart=on-failure
+StandardOutput=append:/home/kudakuda/llm/logs/llama-server.log
+StandardError=append:/home/kudakuda/llm/logs/llama-server.log
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`/etc/systemd/system/litellm-proxy.service`:
+```ini
+[Unit]
+Description=LiteLLM proxy
+After=llama-server.service
+Requires=llama-server.service
+
+[Service]
+Type=simple
+User=kudakuda
+ExecStart=/home/kudakuda/.local/bin/litellm \
+  --config /home/kudakuda/litellm_config.yaml --port 4000 --host 0.0.0.0
+Restart=on-failure
+StandardOutput=append:/home/kudakuda/llm/logs/litellm.log
+StandardError=append:/home/kudakuda/llm/logs/litellm.log
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enabled both:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now llama-server litellm-proxy
+```
+
+After the Proxmox crash and reboot, both services came up automatically. Verified:
+```bash
+curl http://localhost:8080/v1/models   # llama-server responding
+curl http://localhost:4000/v1/models   # LiteLLM proxying
+```
+
+**Open WebUI:** already running as a Docker container on 127.0.0.1:3000. One-time config in browser: Admin → Connections → OpenAI API Base URL = `http://172.17.0.1:8080/v1`, key = `sk-XXXX`. The `172.17.0.1` is the Docker bridge gateway — how the container reaches the host's llama-server.
+
+---
+
+<br />
+
+### Final server state
+
+```
+CUDA VM (192.168.100.100)
+├── llama-server :8080 (0.0.0.0)  — OpenAI-compatible inference
+├── LiteLLM      :4000 (0.0.0.0)  — Anthropic-compatible proxy
+├── Open WebUI   :3000 (localhost) — Chat UI (Docker)
+├── Model: Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf (18.6GB, Q4_K_M)
+├── GPU: Tesla P40 24GB, -ngl 99 (fully offloaded)
+├── Context: 32768 tokens
+└── All services auto-start via systemd
+```
+
+No project files. No coding agents. Just inference. Clients connect over vmbr2 or via SSH tunnel from Mac.

@@ -1,0 +1,164 @@
+---
+title: Qut
+id: qut
+year: 2026
+domain: ["ai", "security"]
+status: "active"
+featured: false
+badges: ["ai/ml"]
+summary: "<strong>Private AI coding lab</strong> — local inference on a Tesla P40, dual-agent workflow, and network-isolated infrastructure. Built after abandoning third-party agent platforms over supply-chain security concerns.<ul><li>Qwen3-Coder-30B on P40 via llama.cpp (free, unlimited, private)</li><li>Dual-agent: Claude (architect) + Aider/Qwen (executor)</li><li>Air-gapped vmbr2 topology — code never leaves the network</li><li>Replaced MoltBot/OpenClaw after ClawHub malware campaigns</li></ul>"
+artifacts:
+  diagram: ""
+images: []
+related: ["hephaestus", "moltbot"]
+---
+
+Qut is a private AI coding lab running on Hephaestus — a self-hosted inference server, a dual-agent development workflow, and a network topology designed so that source code and AI queries never leave the local network. The name comes from Old Turkic: qut is the divine life-force that Tengri grants to those capable of wielding it. Not a god, not a servant — the intelligence itself.
+
+The project exists because the alternative didn't survive contact with reality. [MoltBot](/projects/moltbot) was the original plan: a multi-channel AI agent orchestration system built on the OpenClaw runtime, with skill-based architecture, hybrid memory, and sandboxed tool execution. The design was sound. The ecosystem was not. In January 2026, Koi Security disclosed 341+ malicious skills in ClawHub (OpenClaw's public skill repository) — backdoors, credential exfiltrators, and prompt injection payloads disguised as productivity tools. Separately, Shodan scans found 1,009+ OpenClaw gateways exposed to the public internet with no authentication. The skill system that was supposed to be a feature had become a supply chain attack surface.
+
+Rather than hardening a platform built on a compromised ecosystem, Qut takes the opposite approach: no third-party agent runtime, no skill marketplace, no gateway exposed to anything. Just a local model on a local GPU, talked to by local clients, on an air-gapped network segment. The intelligence is sovereign — it runs on your iron and answers to no one else's cloud.
+
+---
+
+<br />
+
+### At a glance
+
+- **Inference server:** llama.cpp on CUDA VM (192.168.100.100), Tesla P40 24GB
+- **Model:** Qwen3-Coder-30B-A3B, Q4_K_M quantization (18.6GB), 32K context, ~40-60 tok/s
+- **Translation layer:** LiteLLM proxy (OpenAI → Anthropic API format)
+- **Chat UI:** Open WebUI (Docker, localhost-only)
+- **Agentic coding:** Aider (direct to llama-server, bypasses LiteLLM)
+- **Cloud agent:** Claude Code (paid Anthropic API, full agentic capability)
+- **Network:** vmbr2 (192.168.100.0/24), air-gapped by default, egress opt-in via bastion NAT
+- **Clients:** Any vmbr2 VM (direct) or Mac (via SSH tunnel through bastion)
+
+---
+
+<br />
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  CUDA VM (192.168.100.100) — INFERENCE SERVER ONLY      │
+│                                                         │
+│  llama-server :8080 ──► Tesla P40 (Qwen3-Coder-30B)    │
+│  LiteLLM      :4000 ──► translates OpenAI → Anthropic  │
+│  Open WebUI   :3000 ──► chat UI (Docker)                │
+│                                                         │
+│  No project files. No Claude Code. Just inference.      │
+│  All three auto-start on boot (systemd + Docker).       │
+└──────────────────────────┬──────────────────────────────┘
+                           │ vmbr2 (192.168.100.0/24)
+            ┌──────────────┼──────────────┐
+            │              │              │
+     ┌──────┴──────┐ ┌────┴────┐  ┌──────┴──────┐
+     │ kali  :20   │ │victim:30│  │ any VM ...  │
+     │ claude-local │ │claude-l │  │ claude-l    │
+     │ ↕ files     │ │↕ files  │  │ ↕ files     │
+     └─────────────┘ └─────────┘  └─────────────┘
+            │
+     ┌──────┴──────────────────────────────────────┐
+     │ Mac (via SSH tunnel through bastion)         │
+     │ claude + aider-local for Mac-local projects  │
+     └─────────────────────────────────────────────┘
+```
+
+The CUDA VM is the brain — it loads the model into GPU memory and serves an OpenAI-compatible REST API. It has no project files, no credentials, no coding tools. If it were somehow compromised, there's nothing useful on it. Defense in depth.
+
+Client VMs are where the work happens. They hold the project files, run the coding agents, and send prompts to the CUDA VM over the internal network. The Mac connects via SSH tunnel through the bastion — prompts and completions travel the tunnel, but source code never leaves the Mac.
+
+---
+
+<br />
+
+### The dual-agent workflow
+
+The real payoff of the setup: two AI agents working on the same project simultaneously, each with different strengths.
+
+**Agent 1 — Claude (paid, cloud):** Deep reasoning, complex architecture decisions, understanding large codebases, catching subtle bugs. The senior architect. You go to it for the hard problems.
+
+**Agent 2 — Aider + Qwen (free, local):** Fast iteration, unlimited usage, multi-file edits, auto-commits, no rate limits. The fast executor. You give it clear tasks and it delivers.
+
+A typical session: open two terminals in the same project directory. Ask Claude to review the auth flow and identify security issues. While it thinks, give Aider the input validation tasks from yesterday's plan. Claude returns with three findings and a fix strategy. You hand the strategy to Aider, which implements it across eight files, runs the tests, and auto-commits. You're the coordinator — Claude thinks, Aider executes.
+
+They share the same files and git repo. When Aider commits a change, Claude sees it on the next file read. The workflow is sequential through you, not parallel between agents. Think of it as pair programming where you're the driver and the two AIs are navigators taking turns.
+
+**Why not just use one?** Claude alone is powerful but metered — you wouldn't burn expensive API calls on "add docstrings to these 20 functions." The local model alone is fast and free but weaker on complex reasoning — you wouldn't trust it to design your auth architecture. Both together: best of both worlds.
+
+---
+
+<br />
+
+### Network isolation
+
+Security comes from network topology, not firewall rules.
+
+VMs on vmbr2 (192.168.100.0/24) have no internet access by default. Not because of a firewall blocking them — there simply is no route. Their network interface is on an isolated L2 domain with no gateway configured. It's like plugging a computer into a switch that isn't connected to a router.
+
+```
+Internet ←→ [Router] ←→ vmbr0 ←→ [Bastion] ←→ vmbr2 ←→ Lab VMs
+                                       ↑
+                                 NAT + ip_forward
+                                 (off by default)
+```
+
+When a VM needs internet (to install packages, download a model), you explicitly enable it:
+
+```bash
+sudo egress-on    # adds bastion as gateway, enables NAT
+# ... do your downloads ...
+sudo egress-off   # removes the gateway, back to isolated
+```
+
+During normal operation — when you're writing code with AI assistance — nothing touches the internet. The CUDA VM serves the model on 192.168.100.0/24. Client VMs send prompts on 192.168.100.0/24. There's no API key to leak, no data to exfiltrate, no cloud provider logging your queries.
+
+The bastion is the single choke point. All external access flows through it: outbound only when egress is active, inbound SSH via ProxyJump. Your Mac can't even reach the lab VMs directly — they're on a different subnet that your apartment network doesn't route to.
+
+---
+
+<br />
+
+### Why not MoltBot
+
+[MoltBot](/projects/moltbot) was designed as a multi-channel AI agent orchestration system on the OpenClaw runtime. The architecture was solid: gateway control plane, file-governed planning, hybrid memory, skill layering, per-agent sandboxing. But the ecosystem it depended on had fundamental supply-chain problems:
+
+- **341+ malicious skills** found in ClawHub (OpenClaw's public skill repository) by Koi Security in January 2026 — backdoors, credential exfiltrators, prompt injection payloads
+- **1,009+ exposed gateways** found via Shodan with no authentication — "auth mode none" was the default until a recent breaking change
+- **Skill trust model** was opt-out, not opt-in — new skills from the marketplace were executable by default unless explicitly denied
+
+The lesson: if your agent runtime treats third-party skills as a feature rather than a supply chain, you inherit the security posture of every skill author. Auditing tools exist (skillvet, Cisco Skill Scanner), but they're reactive — you're always one step behind the next malicious upload.
+
+Qut sidesteps the problem entirely. There is no skill marketplace. There is no gateway. The inference server listens on an air-gapped network segment. The coding agents (Claude Code, Aider) are the only tools, and they operate on local files with local models. The attack surface is the attack surface of SSH and your own code — which is exactly what you'd have without any AI at all.
+
+---
+
+<br />
+
+### Quick reference
+
+```bash
+# Start SSH tunnel (Mac, one-time per session)
+ssh -fN cuda
+
+# AI-assisted coding with local model (free, unlimited)
+cd ~/my-project && aider-local
+
+# AI-assisted coding with Claude (paid, powerful)
+cd ~/my-project && claude
+
+# Chat with local model in browser
+open http://localhost:3000
+
+# Chat with local model in terminal (no file editing)
+cd ~/my-project && claude-local
+
+# Check GPU / model status
+ssh cuda 'nvidia-smi'
+ssh cuda 'curl -s localhost:8080/v1/models | python3 -m json.tool'
+
+# Restart inference services
+ssh cuda 'sudo systemctl restart llama-server litellm-proxy'
+```

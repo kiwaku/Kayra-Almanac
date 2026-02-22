@@ -1,16 +1,16 @@
 ---
-title: Moltbot
+title: "Moltbot: Agent Lab"
 id: moltbot
 year: 2026
 domain: ["ai", "security"]
-status: "active"
+status: "paused"
 featured: false
 badges: ["ai/ml"]
 summary: "<strong>Self-hosted AI agent orchestration</strong> platform built on the OpenClaw runtime. Multi-channel routing, file-governed workflows, and sandboxed tool execution for personal infrastructure automation.<ul><li>Gateway + channel adapters (Discord/Telegram/WhatsApp)</li><li>Skill-based architecture with workspace overrides</li><li>Local-first with Tesla P40 inference backend</li><li>Security-hardened: per-agent sandboxing, tool allowlists</li></ul>"
 artifacts:
   diagram: ""
 images: []
-related: ["hephaestus"]
+related: ["hephaestus", "qut"]
 ---
 
 Moltbot is a self-hosted AI agent orchestration system built on the OpenClaw runtime, designed to run on Hephaestus as a persistent personal operator across multiple communication channels. It combines a gateway control plane, file-governed planning workflows, hybrid memory retrieval (vector + BM25), and a layered skill system to produce agents that externalize state to disk rather than relying on ephemeral chat context.
@@ -141,3 +141,17 @@ Always-on process with channel adapters. Localhost bind for gateway. Gateway req
 - Prompt injection via UI content is a real vector — use moltguard for web/email scanning
 - Keep web tools off for tool-enabled agents unless explicitly needed
 - Keep secrets out of prompts; use per-agent `auth-profiles.json`
+
+---
+
+<br />
+
+### Shelved
+
+Moltbot was shelved in February 2026 in favour of [Qut](/projects/qut) — a sovereign AI coding lab built on the same [Hephaestus](/projects/hephaestus) hardware but without any third-party agent runtime.
+
+The decision came down to supply-chain trust. OpenClaw's skill ecosystem had become an active attack surface: Koi Security's January 2026 disclosure found 341+ malicious skills in ClawHub — backdoors, credential exfiltrators, and prompt injection payloads packaged as productivity tools. The skill trust model was opt-out by default, meaning newly installed skills were executable unless explicitly denied. Separately, 1,009+ OpenClaw gateways were found exposed on Shodan with no authentication, a consequence of "auth mode none" being the default until a recent breaking change.
+
+Auditing tools exist (skillvet, Cisco Skill Scanner), but they're reactive — always one step behind the next malicious upload. Hardening OpenClaw to the level required for personal infrastructure felt like building a fortress on someone else's foundation.
+
+[Qut](/projects/qut) sidesteps the problem entirely: no skill marketplace, no gateway, no third-party runtime. Just a local model (Qwen3-Coder-30B on a Tesla P40) served over an air-gapped network, talked to by Aider and Claude Code. The attack surface is SSH and your own code — which is exactly what you'd have without any AI at all.

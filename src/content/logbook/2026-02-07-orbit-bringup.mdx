@@ -6,6 +6,9 @@ project: orbit-rxtx
 images:
   - "/artifacts/orbit-rxtx/IMG_3551.webp"
   - "/artifacts/orbit-rxtx/IMG_3742.webp"
+  - "/artifacts/orbit-rxtx/IMG_3434.webp"
+  - "/artifacts/orbit-rxtx/IMG_3435.webp"
+  - "/artifacts/orbit-rxtx/IMG_3437.webp"
 anomaly: false
 ---
 
@@ -51,8 +54,10 @@ NanoVNA S11 measurements on crossed dual-band Yagi. Indoor bench verification �
 
 ### UHF (70 cm)
 
+<img src="/artifacts/orbit-rxtx/IMG_3434.webp" alt="NanoVNA S11 sweep 400–470 MHz — resonance dip at 420.3 MHz, -37.04 dB" loading="lazy" />
+
 - S11 ≤ −10 dB from ~410 MHz upward
-- **Resonance dip:** sharp feature at ~420 MHz
+- **Resonance dip:** sharp feature at ~420 MHz (S11 = −37.04 dB, impedance 50.33 + j1.37Ω)
 - **Satellite region spot check:** 437 MHz, S11 ≈ −20 dB
 - **Conclusion:** UHF matching is good across the satellite region (~435 MHz)
 
@@ -60,10 +65,16 @@ NanoVNA S11 measurements on crossed dual-band Yagi. Indoor bench verification �
 
 ### VHF (2 m)
 
+<img src="/artifacts/orbit-rxtx/IMG_3435.webp" alt="NanoVNA S11 sweep 130–170 MHz — resonance dip at 141.6 MHz, -31.82 dB" loading="lazy" />
+
 - 140–148 MHz shows S11 better than −10 dB
-- **Resonance dip:** sharp feature at ~142 MHz
+- **Resonance dip:** sharp feature at ~142 MHz (S11 = −31.82 dB, impedance 47.45 − j1.03Ω)
 - **In-band reference:** 145.800 MHz, S11 ≈ −15 dB
 - Tighter sweep curve is much smoother (stable, real response)
+
+Second VHF sweep taken 6 minutes later confirmed the resonance — stable and repeatable:
+
+<img src="/artifacts/orbit-rxtx/IMG_3437.webp" alt="NanoVNA S11 sweep 130–170 MHz — second take confirming VHF resonance" loading="lazy" />
 
 ### Verdict
 
@@ -81,30 +92,3 @@ At high elevation angles, the Yagi's element branches intersected with the AntRu
 
 Rotator assembly completed with the extenders in place. Full Az/El sweep confirmed clear at all angles.
 
----
-
-<br />
-
-## First reception attempts
-
-Target satellites tested:
-- ___ (NOAA/Meteor/ISS/etc.)
-
-Tools:
-- tracking software: ___
-- SDR stack: ___
-
-Results:
-- Waterfall screenshot(s):
-- Did Doppler correction help? yes/no + evidence
-
----
-
-<br />
-
-## Issues & fixes
-- Issue:
-  - symptom:
-  - root cause:
-  - fix:
-  - verification:

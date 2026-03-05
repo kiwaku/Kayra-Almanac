@@ -6,21 +6,23 @@ domain: ["hardware", "rf"]
 status: "active"
 featured: false
 badges: ["oopart"]
-summary: "Modular LEO ground station for RX instrumentation and full-duplex satellite communication.<ul><li>UHF/VHF downlink with SDR processing</li><li>Custom LNA and band-pass filtering</li><li>TBD</li></ul>"
+summary: "Modular LEO ground station for RX instrumentation and full-duplex satellite communication.<ul><li>UHF/VHF downlink with SDR processing (RTL-SDR v2)</li><li>NanoVNA-verified crossed Yagi — S11 &lt; −30 dB on both bands</li><li>AntRunner Az/El tracking with custom extenders</li></ul>"
 metrics: { }
 artifacts:
   diagram: ""
 images:
   - "/artifacts/orbit-rxtx/IMG_3551.webp"
   - "/artifacts/orbit-rxtx/IMG_3742.webp"
+  - "/artifacts/orbit-rxtx/IMG_3434.webp"
+  - "/artifacts/orbit-rxtx/IMG_3435.webp"
 related: []
 ---
 
 Modular LEO ground station for RX instrumentation and full-duplex satellite communication.
 
-- UHF/VHF downlink with SDR processing
-- Custom LNA and band-pass filtering
-- TBD
+- UHF/VHF downlink with SDR processing (RTL-SDR v2)
+- NanoVNA-verified crossed Yagi — S11 < −30 dB on both bands
+- AntRunner Az/El tracking with custom extenders
 
 ---
 
@@ -74,6 +76,23 @@ ORBIT-RXTX is a Japan-based LEO satellite ground station built as a *system*, no
 ---
 <br />
 
+## NanoVNA Antenna Verification
+
+S11 return loss measurements on the crossed dual-band Yagi, taken with a NanoVNA at the SMA reference plane (indoor bench test).
+
+**UHF (400–470 MHz):** Resonance at 420.3 MHz, S11 = −37.04 dB, impedance 50.33 + j1.37Ω.
+
+<img src="/artifacts/orbit-rxtx/IMG_3434.webp" alt="NanoVNA S11 sweep 400–470 MHz — UHF resonance at 420.3 MHz" loading="lazy" />
+
+**VHF (130–170 MHz):** Resonance at 141.6 MHz, S11 = −31.82 dB, impedance 47.45 − j1.03Ω.
+
+<img src="/artifacts/orbit-rxtx/IMG_3435.webp" alt="NanoVNA S11 sweep 130–170 MHz — VHF resonance at 141.6 MHz" loading="lazy" />
+
+Both bands show excellent match (well below −10 dB threshold) across their target ranges. Detailed sweep analysis in the [Stage 1 bring-up log](/logbook/2026-02-07-orbit-bringup).
+
+---
+<br />
+
 ## Key Design Decisions (Short)
 ### Why not DIY “cross-yagi from two separate yagis”?
 A true cross-Yagi needs a correct, single phase center and controlled geometry. Converting two separate booms into a real cross-yagi usually requires dismantling/rebuilding (element transplant / drilling) and introduces phase/spacing errors and non-reproducible results.  
@@ -123,15 +142,9 @@ RX-first produces publishable artifacts immediately (waterfalls, Doppler curves,
 ---
 <br />
 
-## Logs & Build Diary
-Long-form build notes, experiments, mistakes, and tuning sessions are tracked separately here:
+## Build Logs
 
-- **Build Logs:** /logs/orbit-rxtx/  
-- **RF Measurements (NanoVNA):** /logs/orbit-rxtx/measurements/  
-- **Cabling & Adapter Decisions:** /logs/orbit-rxtx/rf-plumbing/  
-- **Stage 2 Planning (TX chain / license):** /logs/orbit-rxtx/stage-2/
-
-> The project page stays clean and current; logs preserve the messy reality.
+- [Stage 1 Bring-up & NanoVNA Results](/logbook/2026-02-07-orbit-bringup) — calibration, S11 sweeps, AntRunner mounting
 
 ---
 

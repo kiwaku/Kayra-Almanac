@@ -1,171 +1,168 @@
 ---
 import Base from '../layouts/SectionLayout.astro';
-
-/**
- * TIMELINE TYPOGRAPHY GUIDE
- *
- * Main timeline entries:
- * - Location & Year: <strong>City, Year</strong> or <strong>City1, City2 · Month-Month Year</strong>
- * - Institution/Company subtitle: <p><em>Institution Name — Role/Degree</em></p>
- * - Bullet points: Regular text with circle bullets (bullets-circle class)
- *
- * Summer Deployments (nested subsections):
- * - Header: <strong>Summer Deployments:</strong>
- * - Each deployment: <img flag /> <strong>City, Season Year</strong> — Regular description text
- * - Bullet style: Circle bullets (bullets-circle class) for consistency
- *
- * Flags:
- * - Main timeline: Vertical stack in timeline-marker column (left side)
- * - Summer deployments: Inline flag-inline before city name
- */
 ---
 <Base title="About">
   <h1>About</h1>
 
-  <p>Systems engineer focused on security infrastructure, adversarial ML, and bare-metal experimentation. This site documents hardware builds, evaluation frameworks, and low-level tooling.</p>
+  <p>Systems engineer working across security, AI inference, and RF. This site documents the projects, hardware, and logs.</p>
 
   <h2>Technical Background</h2>
 
   <h3>Areas of Focus</h3>
   <ul>
-    <li><strong>Security:</strong> Adversarial networks, red-team simulations, VFIO isolation</li>
-    <li><strong>ML:</strong> Jailbreak eval, toxicity probes, spiking neural networks</li>
-    <li><strong>Hardware:</strong> PCIe passthrough, InfiniBand fabric, thermal management</li>
-    <li><strong>Systems:</strong> Proxmox VE, IOMMU/VT-d, RDMA protocols</li>
+    <li><strong>Security:</strong> GPU-accelerated IDS, red-team simulations, adversarial networks</li>
+    <li><strong>ML/AI:</strong> Local LLM inference, jailbreak eval, spiking neural networks</li>
+    <li><strong>Hardware:</strong> PCIe passthrough, InfiniBand/RDMA, thermal management</li>
+    <li><strong>RF:</strong> LEO satellite comms, SDR, antenna systems</li>
   </ul>
 
   <h3>Tools & Stack</h3>
-  <p class="tech-line"><em>Languages:</em> Python, C, Bash, Verilog</p>
-  <p class="tech-line"><em>Platforms:</em> Proxmox VE, InfiniBand, CUDA, Linux KVM</p>
-  <p class="tech-line"><em>Hardware:</em> Xeon E5-v3, Tesla P40, ConnectX-3, NETGEAR GS105E</p>
+  <p class="tech-line"><em>Languages:</em> Python, C/CUDA, Bash, Verilog</p>
+  <p class="tech-line"><em>Platforms:</em> Proxmox VE, CUDA, InfiniBand, llama.cpp, Linux KVM</p>
+  <p class="tech-line"><em>Hardware:</em> Xeon E5-v3, Tesla P40, ConnectX-3, RTL-SDR</p>
 
   <h2>Current Work</h2>
 
-  <p>Building adversarial network testbeds for GPU-accelerated threat detection. Exploring CUDA-based packet analysis and RDMA attack vectors in the Hephaestus lab environment.</p>
+  <p>Private AI inference lab on local hardware, LEO satellite ground station, and GPU-accelerated network defense — all built on the Hephaestus platform.</p>
 
   <h2>Timeline</h2>
 
-  <ul class="timeline">
-    
-    <li>
-      <div class="timeline-marker">
-        <img src="/assets/flags/sg.gif" alt="Singapore" class="flag" />
-        <img src="/assets/flags/th.gif" alt="Thailand" class="flag" />
-        <img src="/assets/flags/kh.gif" alt="Cambodia" class="flag" />
-      </div>
-      <div class="timeline-content">
-        <strong>Singapore · Bangkok · Phnom Penh, Late 2025–Present</strong>
-        <p><em>Co-Founder — Digital Health Initiative</em></p>
-        <ul class="bullets-circle">
-          <li><strong>Live-Fire Implementation:</strong> Deploying Manchester-era SNN research for real-world injury prediction.</li>
-          <li><strong>Adversarial Defense:</strong> Engineering prompt-shielding for medical data in high-entropy regulatory environments.</li>
-          <li><strong>Infrastructure:</strong> Established "Live-fire" testing grounds for tools developed in the Homunculus lab.</li>
-        </ul>
-      </div>
-    </li>
+  <div class="phase-timeline">
 
-    <li>
-      <div class="timeline-marker">
-        <img src="/assets/flags/jp.gif" alt="Japan" class="flag" />
-      </div>
-      <div class="timeline-content">
-        <strong>Tokyo, Sep–Oct 2025</strong>
-        <p><em>Independent Research — Hephaestus Lab</em></p>
-        <ul class="bullets-circle">
-          <li><strong>The Homunculus PC:</strong> Engineered a "Layer 6" single-box datacenter for cross-domain security research.</li>
-          <li><strong>Hardware Revival:</strong> Performed physical BIOS chip clipping and hardware-level flashing to resurrect soft-bricked quad-port NICs.</li>
-          <li><strong>Environment:</strong> Built isolated Proxmox environments modeling InfiniBand fabrics and AI-driven GPU defense.</li>
-        </ul>
-      </div>
-    </li>
-
-    <li>
-      <div class="timeline-marker">
-        <img src="/assets/flags/de.gif" alt="Germany" class="flag" />
-        <img src="/assets/flags/gb.gif" alt="UK" class="flag" />
-      </div>
-      <div class="timeline-content">
-        <strong>Berlin · London, Jul–Sep 2025</strong>
-        <p><em>Post-Grad Security Research & Auditing</em></p>
-        <ul class="bullets-circle">
-          <li><strong>Berlin (Generative Defense):</strong> Integrated "naive" evasion patterns into generative phishing shields; collaborated with local collectives (c-base).</li>
-          <li><strong>London (Fintech):</strong> Conducted freelance endpoint audits ($400/hr) and verified quantum-resistance claims with GCHQ contacts.</li>
-          <li><strong>Research:</strong> Comparative analysis of "Punk" hacker ethos (Berlin) vs. Corporate compliance structures (London).</li>
-        </ul>
-      </div>
-    </li>
-
-    <li>
-      <div class="timeline-marker">
-        <img src="/assets/flags/gb.gif" alt="UK" class="flag" />
-      </div>
-      <div class="timeline-content">
-        <strong>Manchester, 2022–2025</strong>
-        <p><em>University of Manchester — Computer Science</em></p>
-        <ul class="bullets-circle">
-          <li><strong>Final Year Project:</strong> Independent implementation of <em>CREST</em> SNN for DSEC-Detection; pioneered a Hybrid ANN-to-SNN weight transfer method to solve vanishing gradients.</li>
-          <li><strong>Diagnostic Tooling:</strong> Engineered custom visualization tools to debug spatial activation instability in event-based vision models.</li>
-          <li><strong>Leadership:</strong> CS Dept Representative, PASS Leader, and President of Manchester Japanese Society.</li>
-        </ul>
-
-        <div class="summer-deployments">
-          <p class="deployment-header"><strong>Summer Deployments (Tokyo):</strong></p>
-          
-          <div class="deployment-item">
-            <img src="/assets/flags/jp.gif" alt="Japan" class="flag-inline" />
-            <div class="deployment-content">
-              <strong>Summer 2023 · Research & Dev</strong>
-              <ul class="bullets-circle">
-                <li><strong>BCI/EEG Research:</strong> Implemented Machine Learning classifiers for brain-computer interfaces (Python, Arduino).</li>
-                <li><strong>Satellite Ops:</strong> Built custom antenna array for NOAA/Meteor satellite access via RTL-SDR.</li>
-                <li><strong>LLM Dev:</strong> Built "PDF-QA" analysis tool (LangChain) and Live Flower Detection WebApp (YoloV8).</li>
-              </ul>
-            </div>
+    <div class="phase">
+      <div class="phase-divider"><span>Phase 5 — Deployment</span></div>
+      <div class="phase-entries">
+        <div class="phase-entry">
+          <div class="flag-row"><img src="/assets/flags/sg.gif" alt="SG" class="flag" /><img src="/assets/flags/th.gif" alt="TH" class="flag" /><img src="/assets/flags/kh.gif" alt="KH" class="flag" /></div>
+          <div class="phase-header">
+            <span class="phase-locations">Singapore · Bangkok · Phnom Penh</span>
+            <span class="phase-date">Late 2025–Present</span>
           </div>
-
-          <div class="deployment-item">
-            <img src="/assets/flags/jp.gif" alt="Japan" class="flag-inline" />
-            <div class="deployment-content">
-              <strong>Summer 2022 · RF & Security</strong>
-              <ul class="bullets-circle">
-                <li><strong>RF Signal Decryption:</strong> IT-Funded research into key signal recognition and replay attacks.</li>
-                <li><strong>Pentesting:</strong> VEX-Controller protocol vulnerability assessment.</li>
-              </ul>
-            </div>
-          </div>
-
+          <p class="phase-role"><em>Co-Founder — Digital Health Initiative</em></p>
+          <ul class="bullets-circle">
+            <li><strong>Live-Fire Implementation:</strong> Deploying Manchester-era SNN research for real-world injury prediction.</li>
+            <li><strong>Adversarial Defense:</strong> Engineering prompt-shielding for medical data in high-entropy regulatory environments.</li>
+            <li><strong>Infrastructure:</strong> Established "Live-fire" testing grounds for tools developed in the Homunculus lab.</li>
+          </ul>
         </div>
       </div>
-    </li>
+    </div>
 
-    <li>
-      <div class="timeline-marker">
-        <img src="/assets/flags/jp.gif" alt="Japan" class="flag" />
+    <div class="phase">
+      <div class="phase-divider"><span>Phase 4 — Independent Research</span></div>
+      <div class="phase-entries">
+        <div class="phase-entry">
+          <div class="flag-row"><img src="/assets/flags/jp.gif" alt="JP" class="flag" /></div>
+          <div class="phase-header">
+            <span class="phase-locations">Tokyo</span>
+            <span class="phase-date">Sep–Oct 2025</span>
+          </div>
+          <p class="phase-role"><em>Hephaestus Lab</em></p>
+          <ul class="bullets-circle">
+            <li><strong>The Homunculus PC:</strong> Engineered a "Layer 6" single-box datacenter for cross-domain security research.</li>
+            <li><strong>Hardware Revival:</strong> Performed physical BIOS chip clipping and hardware-level flashing to resurrect soft-bricked quad-port NICs.</li>
+            <li><strong>Environment:</strong> Built isolated Proxmox environments modeling InfiniBand fabrics and AI-driven GPU defense.</li>
+          </ul>
+        </div>
       </div>
-      <div class="timeline-content">
-        <strong>Tokyo, 2017–2022</strong>
-        <p><em>Pre-University — Independent Research</em></p>
-        <ul class="bullets-circle">
-          <li><strong>Institutional Grant:</strong> Secured uncapped IT department funding for independent RF replay attack research.</li>
-          <li><strong>Flight Recognition (2021):</strong> Developed ADSB-Demodulator (1090MHz) for real-time airspace visualization using SDRAngel.</li>
-          <li><strong>VEX Robotics:</strong> Team Captain; integrated C++ control systems with Fusion360 mechanical design.</li>
-          <li><strong>Freelance:</strong> Illustrator, designer, and developer (2020–2022).</li>
-        </ul>
-      </div>
-    </li>
+    </div>
 
-  </ul>
+    <div class="phase">
+      <div class="phase-divider"><span>Phase 3 — Post-Grad</span></div>
+      <div class="phase-entries">
+        <div class="phase-entry">
+          <div class="flag-row"><img src="/assets/flags/de.gif" alt="DE" class="flag" /><img src="/assets/flags/gb.gif" alt="GB" class="flag" /></div>
+          <div class="phase-header">
+            <span class="phase-locations">Berlin · London</span>
+            <span class="phase-date">Jul–Sep 2025</span>
+          </div>
+          <p class="phase-role"><em>Security Research & Auditing</em></p>
+          <ul class="bullets-circle">
+            <li><strong>Berlin (Generative Defense):</strong> Integrated "naive" evasion patterns into generative phishing shields; collaborated with local collectives (c-base).</li>
+            <li><strong>London (Fintech):</strong> Conducted freelance endpoint audits ($400/hr) and verified quantum-resistance claims with GCHQ contacts.</li>
+            <li><strong>Research:</strong> Comparative analysis of "Punk" hacker ethos (Berlin) vs. Corporate compliance structures (London).</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase-divider"><span>Phase 2 — University</span></div>
+      <div class="phase-entries">
+        <div class="phase-entry">
+          <div class="flag-row"><img src="/assets/flags/gb.gif" alt="GB" class="flag" /></div>
+          <div class="phase-header">
+            <span class="phase-locations">Manchester</span>
+            <span class="phase-date">2022–2025</span>
+          </div>
+          <p class="phase-role"><em>University of Manchester — Computer Science</em></p>
+          <ul class="bullets-circle">
+            <li><strong>Final Year Project:</strong> Independent implementation of <em>CREST</em> SNN for DSEC-Detection; pioneered a Hybrid ANN-to-SNN weight transfer method to solve vanishing gradients.</li>
+            <li><strong>Diagnostic Tooling:</strong> Engineered custom visualization tools to debug spatial activation instability in event-based vision models.</li>
+            <li><strong>Leadership:</strong> CS Dept Representative, PASS Leader, and President of Manchester Japanese Society.</li>
+          </ul>
+        </div>
+
+        <div class="phase-sub">
+          <p class="sub-header"><img src="/assets/flags/jp.gif" alt="JP" class="flag" /> Summer Deployments — Tokyo</p>
+
+          <div class="phase-entry sub-entry">
+            <div class="phase-header">
+              <span class="phase-locations">Research & Dev</span>
+              <span class="phase-date">Summer 2023</span>
+            </div>
+            <ul class="bullets-circle">
+              <li><strong>BCI/EEG Research:</strong> Implemented Machine Learning classifiers for brain-computer interfaces (Python, Arduino).</li>
+              <li><strong>Satellite Ops:</strong> Built custom antenna array for NOAA/Meteor satellite access via RTL-SDR.</li>
+              <li><strong>LLM Dev:</strong> Built "PDF-QA" analysis tool (LangChain) and Live Flower Detection WebApp (YoloV8).</li>
+            </ul>
+          </div>
+
+          <div class="phase-entry sub-entry">
+            <div class="phase-header">
+              <span class="phase-locations">RF & Security</span>
+              <span class="phase-date">Summer 2022</span>
+            </div>
+            <ul class="bullets-circle">
+              <li><strong>RF Signal Decryption:</strong> IT-Funded research into key signal recognition and replay attacks.</li>
+              <li><strong>Pentesting:</strong> VEX-Controller protocol vulnerability assessment.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase-divider"><span>Phase 1 — Pre-University</span></div>
+      <div class="phase-entries">
+        <div class="phase-entry">
+          <div class="flag-row"><img src="/assets/flags/jp.gif" alt="JP" class="flag" /></div>
+          <div class="phase-header">
+            <span class="phase-locations">Tokyo</span>
+            <span class="phase-date">2017–2022</span>
+          </div>
+          <p class="phase-role"><em>Independent Research</em></p>
+          <ul class="bullets-circle">
+            <li><strong>Institutional Grant:</strong> Secured uncapped IT department funding for independent RF replay attack research.</li>
+            <li><strong>Flight Recognition (2021):</strong> Developed ADSB-Demodulator (1090MHz) for real-time airspace visualization using SDRAngel.</li>
+            <li><strong>VEX Robotics:</strong> Team Captain; integrated C++ control systems with Fusion360 mechanical design.</li>
+            <li><strong>Freelance:</strong> Illustrator, designer, and developer (2020–2022).</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+  </div>
 
   <h2>Contact & Links</h2>
 
-
   <p><strong>Resume:</strong> <a href="/resume.pdf">[PDF]</a></p>
-  <p><strong>Email:</strong> [your-email@example.com]</p>
-  <p><strong>GitHub:</strong> <a href="https://github.com/yourusername">github.com/yourusername</a></p>
+  <p><strong>Email:</strong> <a href="mailto:kayraaraio@gmail.com">kayraaraio@gmail.com</a></p>
+  <p><strong>GitHub:</strong> <a href="https://github.com/kiwaku">github.com/kiwaku</a></p>
 
   <h2>Site Philosophy</h2>
 
-  <p>This site is artifact-first: diagrams, wiring photos, benchmark logs, and READMEs are linked directly from each project card. No marketing speak, no hand-waving. If it's documented here, it's been built, tested, and logged.</p>
+  <p>Project documentation, build logs, and technical artifacts. Everything links back to source — diagrams, measurements, and code.</p>
 </Base>
 
 <style>
@@ -181,7 +178,6 @@ import Base from '../layouts/SectionLayout.astro';
     border-top: none;
   }
 
-  /* Subsection headers - smaller, less prominent */
   h3 {
     font-size: 16px;
     font-weight: bold;
@@ -191,7 +187,6 @@ import Base from '../layouts/SectionLayout.astro';
     color: #444;
   }
 
-  /* Tech stack lines with italic labels */
   .tech-line {
     margin: 0.25em 0;
     line-height: 1.5;
@@ -204,121 +199,130 @@ import Base from '../layouts/SectionLayout.astro';
     display: inline-block;
   }
 
-  .timeline {
-    list-style: none;
-    padding-left: 0;
+  /* Phase timeline */
+  .phase-timeline {
     margin: 1.5em 0;
-    position: relative;
   }
 
-  .timeline::before {
-    content: '';
-    position: absolute;
-    left: 8px;
-    top: 0;
-    bottom: 0;
-    width: 1px;
-    background: #999;
-  }
-
-  .timeline li {
+  .phase {
     margin-bottom: 2em;
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    position: relative;
   }
 
-  .timeline li:last-child {
+  .phase:last-child {
     margin-bottom: 0;
   }
 
-  .timeline-marker {
-    flex-shrink: 0;
-    width: 16px;
+  /* Phase divider — horizontal rule with label */
+  .phase-divider {
     display: flex;
-    flex-direction: column;
-    gap: 3px;
-    z-index: 1;
-    background: white;
-    padding: 2px 0;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 1.2em;
   }
 
-  .timeline-marker .flag {
+  .phase-divider::before,
+  .phase-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #999;
+  }
+
+  .phase-divider span {
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #666;
+    white-space: nowrap;
+  }
+
+  /* Phase entries */
+  .phase-entries {
+    padding-left: 1em;
+  }
+
+  .phase-entry {
+    margin-bottom: 1.2em;
+  }
+
+  .phase-entry:last-child {
+    margin-bottom: 0;
+  }
+
+  /* Header row: location + date */
+  .phase-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1em;
+    margin-bottom: 0.15em;
+  }
+
+  .phase-locations {
+    font-weight: bold;
+    font-size: 15px;
+  }
+
+  .phase-date {
+    font-size: 12px;
+    color: #888;
+    white-space: nowrap;
+  }
+
+  .phase-role {
+    margin: 0 0 0.4em 0;
+    font-size: 13px;
+    color: #555;
+  }
+
+  /* Flag row — compact cluster above city names */
+  .flag-row {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 2px;
+  }
+
+  .flag-row .flag,
+  .sub-header .flag {
     width: 16px;
     height: 11px;
     image-rendering: pixelated;
   }
 
-  .timeline-content {
-    flex: 1;
-    padding-top: 0;
-  }
-
-  .timeline-content > strong {
-    display: block;
-    margin-bottom: 0.5em;
-  }
-
-  .timeline-content ul {
-    margin: 0;
+  /* Bullet lists */
+  .bullets-circle {
     padding-left: 1.2em;
+    margin: 0;
   }
 
-  .timeline-content ul li {
-    display: list-item;
-  }
-
-  /* White circle bullets for timeline */
   .bullets-circle li {
     list-style-type: circle;
     margin-bottom: 0.2em;
   }
 
-  /* Summer deployments subsection - nested within timeline entries */
-  .summer-deployments {
+  /* Summer deployments sub-section */
+  .phase-sub {
     margin-top: 1em;
     padding-top: 0.8em;
-    border-top: 1px dashed #ccc;
+    padding-left: 1em;
+    border-left: 1px dashed #ccc;
   }
 
-  .deployment-header {
-    margin: 0 0 0.5em 0;
+  .sub-header {
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #888;
+    margin: 0 0 0.8em 0;
   }
 
-  .deployment-item {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    margin-bottom: 0.8em;
+  .sub-entry {
+    margin-bottom: 1em;
   }
 
-  .deployment-item:last-child {
+  .sub-entry:last-child {
     margin-bottom: 0;
-  }
-
-  .flag-inline {
-    flex-shrink: 0;
-    width: 16px;
-    height: 11px;
-    image-rendering: pixelated;
-  }
-
-  .deployment-content {
-    flex: 1;
-  }
-
-  .deployment-content > strong {
-    display: block;
-    margin-bottom: 0.35em;
-  }
-
-  .deployment-content ul {
-    padding-left: 1.2em;
-    margin: 0;
-  }
-
-  .deployment-content li {
-    line-height: 1.35;
   }
 </style>

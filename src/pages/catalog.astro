@@ -5,7 +5,12 @@ import Filters from '../components/Filters.astro';
 import ArtifactRow from '../components/ArtifactRow.astro';
 import ProjectBadges from '../components/ProjectBadges.astro';
 
-const all = await getCollection('projects');
+const displayOrder = ['hephaestus', 'qut', 'orbit-rxtx', 'ferrum-ii', 'ferrum-i', 'redllm', 'himorogi', 'sentinel', 'crest-snn', 'moltbot'];
+const unsorted = await getCollection('projects');
+const all = displayOrder
+  .map(id => unsorted.find(p => p.data.id === id))
+  .filter(Boolean)
+  .concat(unsorted.filter(p => !displayOrder.includes(p.data.id)));
 
 // Generate markdown list of all projects
 const rawMarkdown = `# Catalog — All Projects

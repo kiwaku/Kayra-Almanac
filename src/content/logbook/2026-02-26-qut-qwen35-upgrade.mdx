@@ -1,0 +1,178 @@
+---
+title: "Qut: Qwen3.5 Upgrade and LiteLLM Removal"
+date: "2026-02-26"
+tags: ["ai", "hephaestus", "inference", "llama.cpp", "qwen"]
+project: qut
+images: []
+anomaly: false
+---
+
+Upgrading the Qut inference server from Qwen3-Coder-30B to Qwen3.5-35B-A3B, rebuilding llama.cpp for native Anthropic endpoint support, and ripping out the LiteLLM proxy layer entirely.
+
+<br />
+
+### The trigger
+
+A viral post from @sudoingX on X (Feb 25, 2026) demonstrated full agentic Claude Code running locally on a single GPU with Qwen3.5-35B-A3B — planning, file edits, git, tests, self-iteration — all in one terminal session. The key insight: newer llama.cpp versions have native Anthropic API endpoint support (`/v1/messages`), eliminating the need for a LiteLLM proxy entirely. The previous setup (Log 1 and 2) ran Qwen3-Coder-30B-A3B through a `Client → LiteLLM :4000 → llama-server :8080` chain, which worked for chat but broke tool-calling. If the proxy could be removed entirely, the whole architecture simplifies to a single service.
+
+---
+
+<br />
+
+### The new model
+
+**Qwen3.5-35B-A3B** is a hybrid MoE architecture — 35B total parameters but only ~3B active per token (256 experts, 8 active). 30 of its 40 layers use Gated DeltaNet / Mamba2-style linear attention, with only 10 layers using standard attention. This hybrid design gives it native 262k context support (linear attention layers have near-zero KV cache growth) while keeping inference fast on consumer/datacenter GPUs. The Q4_K_M quantization comes to 19.7GB — fits the P40's 24GB VRAM with room for KV cache.
+
+Compared to the old Qwen3-Coder-30B-A3B (18.6GB, pure transformer, 32k context), this is a generational upgrade in architecture, not just a bigger number.
+
+---
+
+<br />
+
+### Rebuilding llama.cpp
+
+The existing binary didn't have the native `/v1/messages` (Anthropic) endpoint. Rebuilt from source on the CUDA VM:
+
+```bash
+cd ~/llama.cpp && git pull && cd build
+cmake .. -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=61 -DLLAMA_CURL=ON -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc) && sudo make install
+```
+
+Commit `2943210c1`. The `LLAMA_CURL=ON` flag enables built-in model downloading (not used here, but nice to have). After install, verified the new endpoint:
+
+```bash
+curl -X POST http://localhost:8080/v1/messages \
+  -H "Content-Type: application/json" \
+  -d '{"model":"test","messages":[{"role":"user","content":"hi"}],"max_tokens":5}'
+```
+
+Returns a proper Anthropic-format response — native endpoint confirmed.
+
+---
+
+<br />
+
+### Model download
+
+**Attempt 1 — huggingface_hub (failed):** The Python xet backend stalled on the 19.7GB GGUF file, same as the Qwen3-Coder download in Log 1. At this point it's a pattern, not a fluke.
+
+**Attempt 2 — wget (worked):**
+```bash
+wget -c <direct-url-to-gguf> -O ~/llm/models/Qwen3.5-35B-A3B/Qwen3.5-35B-A3B-Q4_K_M.gguf
+```
+
+Clean download, 19.7GB. The `-c` flag supports resume if interrupted. For large GGUF files, always use `wget -c`. This is the third time the xet backend has failed on a multi-GB download — lesson now permanent.
+
+---
+
+<br />
+
+### Removing LiteLLM
+
+With the new llama.cpp serving both `/v1/messages` (Anthropic) and `/v1/chat/completions` (OpenAI) natively, LiteLLM's entire reason for existing — translating between API formats — is gone.
+
+```bash
+sudo systemctl stop litellm-proxy
+sudo systemctl disable litellm-proxy
+```
+
+The architecture goes from three services to two:
+
+```
+Before:  llama-server :8080 + LiteLLM :4000 + Open WebUI :3000
+After:   llama-server :8080 + Open WebUI :3000
+```
+
+All aliases updated to point at `:8080` instead of `:4000`. Mac SSH tunnel: removed port 4000 forward, kept 8080 and 3000. Open WebUI needed no changes — it was already talking to llama-server directly via the Docker bridge.
+
+---
+
+<br />
+
+### Updated service configuration
+
+New systemd unit for llama-server:
+
+```ini
+[Unit]
+Description=llama.cpp inference server (Qwen3.5-35B-A3B)
+After=network.target
+
+[Service]
+Type=simple
+User=kudakuda
+Environment="PATH=/usr/local/cuda/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="LD_LIBRARY_PATH=/usr/local/lib"
+ExecStart=/usr/local/bin/llama-server \
+  -m /home/kudakuda/llm/models/Qwen3.5-35B-A3B/Qwen3.5-35B-A3B-Q4_K_M.gguf \
+  --port 8080 \
+  --host 0.0.0.0 \
+  -ngl 99 \
+  -c 131072 \
+  --jinja \
+  --flash-attn on
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Key changes from Log 1: new model path, context bumped to 128k (`-c 131072`), `--flash-attn on` instead of `-fa` (flag name changed in newer llama.cpp), no LiteLLM dependency. VRAM usage after startup: 23,452 MiB / 24,576 MiB — model weights fully offloaded, remaining ~3.7GB for KV cache. At 128k context this was tight — the KV cache was partially spilling to RAM, which would be addressed in the next session.
+
+---
+
+<br />
+
+### Updated aliases
+
+```bash
+# Mac (tunneled)
+alias claude-local='ANTHROPIC_BASE_URL=http://localhost:8080 ANTHROPIC_API_KEY=sk-1234 ANTHROPIC_MODEL=claude-3-5-sonnet-20241022 claude'
+alias aider-local='OPENAI_API_BASE=http://localhost:8080/v1 OPENAI_API_KEY=sk-1234 aider --model openai/Qwen3.5-35B-A3B-Q4_K_M.gguf'
+
+# vmbr2 VMs (direct)
+alias claude-local='ANTHROPIC_BASE_URL=http://192.168.100.100:8080 ANTHROPIC_API_KEY=sk-1234 ANTHROPIC_MODEL=claude-3-5-sonnet-20241022 claude'
+```
+
+These were later updated again to add `CLAUDE_CONFIG_DIR` for auth isolation — the versions above are the intermediate state.
+
+---
+
+<br />
+
+### Verification
+
+```bash
+# Health check
+curl http://192.168.100.100:8080/health
+# {"status":"ok"}
+
+# Anthropic endpoint (native)
+curl -X POST http://192.168.100.100:8080/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: sk-1234" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{"model":"claude-3-5-sonnet-20241022","messages":[{"role":"user","content":"say hi"}],"max_tokens":10}'
+# Returns proper Anthropic-format response with thinking block
+
+# OpenAI endpoint (for aider)
+curl http://192.168.100.100:8080/v1/models
+# Returns model list with Qwen3.5-35B-A3B-Q4_K_M.gguf
+```
+
+Open WebUI still works — talks to llama-server directly via Docker bridge (`http://172.17.0.1:8080/v1`). No changes needed.
+
+---
+
+<br />
+
+### Mistakes and lessons
+
+| Mistake | Lesson |
+|---------|--------|
+| Tried huggingface_hub again for 19.7GB download | Third time failing on large GGUFs — `wget -c` is now the permanent default |
+| Set context to 128k on P40 | Works but KV cache spills to RAM; hybrid model helps but 128k still too much for 24GB |
+| Used `-fa` flag from the old guide | Flag syntax varies between llama.cpp versions; always check `--help` |
+| Didn't update aider model name immediately | Model name in alias must match exactly what llama-server reports via `/v1/models` |

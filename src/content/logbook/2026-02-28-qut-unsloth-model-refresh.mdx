@@ -1,0 +1,105 @@
+---
+title: "Qut: Unsloth Dynamic 2.0 Model Refresh"
+date: "2026-02-28"
+tags: ["ai", "hephaestus", "inference", "llama.cpp", "qwen"]
+project: qut
+images: []
+anomaly: false
+---
+
+Replacing the standard Q4_K_M GGUF with Unsloth Dynamic 2.0 UD-Q4_K_XL for improved tool-calling and coding quality. Same model architecture, better quantization.
+
+<br />
+
+### Background
+
+Unsloth released refreshed GGUF quantizations of Qwen3.5-35B-A3B using their "Unsloth Dynamic 2.0" method (Feb 27-28). Key improvements over standard llama.cpp quants: better tool-calling reliability (critical for claude-local agentic workflows), improved coding output coherence, removal of MXFP4 layers for stability, and new quant tiers (Q4_K_XL) not available in standard llama.cpp.
+
+The existing setup from the previous session: `Qwen3.5-35B-A3B-Q4_K_M.gguf` (19.7 GB), 96k context, q4_0 KV cache. Working but tool-calling sometimes flaky.
+
+---
+
+<br />
+
+### Quant selection
+
+| Quant | Size | Est. VRAM (96k/q4_0 KV) | Headroom |
+|-------|------|--------------------------|----------|
+| UD-Q4_K_M | 19.9 GB | ~21.4 GB | ~3.1 GB |
+| **UD-Q4_K_XL** | **20.6 GB** | **~22.1 GB** | **~2.5 GB** |
+
+Selected **UD-Q4_K_XL** — the XL tier provides higher precision for more important weight matrices while keeping the overall size manageable for the P40.
+
+---
+
+<br />
+
+### Procedure
+
+CUDA VM disk was 96% full (2.8 GB free, 60 GB total). The 20 GB model left no room for a side-by-side download — had to stop llama-server and delete the old model first.
+
+1. Stopped llama-server, deleted old model (freed 20 GB)
+2. Enabled egress on CUDA VM + NAT on bastion
+3. Downloaded new model via wget (~35 min at ~10-12 MB/s)
+4. Updated systemd service (model path only), restarted
+5. Disabled egress
+
+**Egress gotcha:** CUDA VM's `egress-on` only sets the default route to bastion. Bastion's `egress-on` (ip_forward + iptables MASQUERADE) must also be run — and bastion's `netman` user doesn't have NOPASSWD sudo for iptables. Had to run manually. Also needed `-4` flag on wget to force IPv4 — IPv6 resolved but wasn't routable through the NAT.
+
+---
+
+<br />
+
+### Results
+
+| Metric | Before (Q4_K_M) | After (UD-Q4_K_XL) |
+|--------|------------------|---------------------|
+| **Model size** | 19.7 GB | 20.6 GB |
+| **VRAM used** | 21.2 GB | 20.5 GB |
+| **VRAM free** | 3.2 GB | 4.0 GB |
+| **Context** | 96k | 96k (unchanged) |
+| **KV cache** | q4_0 | q4_0 (unchanged) |
+
+VRAM usage *decreased* by ~0.7 GB despite the larger file size. The Unsloth Dynamic quantization appears more memory-efficient at runtime.
+
+Updated service file:
+```ini
+ExecStart=/usr/local/bin/llama-server \
+  -m /home/kudakuda/llm/models/Qwen3.5-35B-A3B/Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf \
+  --port 8080 \
+  --host 0.0.0.0 \
+  -ngl 99 \
+  -c 98304 \
+  --jinja \
+  --flash-attn on \
+  --cache-type-k q4_0 \
+  --cache-type-v q4_0 \
+  -np 1
+```
+
+---
+
+<br />
+
+### Alias updates
+
+The model filename changed, which affects aider-local aliases:
+```diff
+- --model openai/Qwen3.5-35B-A3B-Q4_K_M.gguf
++ --model openai/Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf
+```
+
+claude-local aliases are unaffected — they use a fake model name that llama-server ignores.
+
+---
+
+<br />
+
+### Mistakes and lessons
+
+| Mistake | Lesson |
+|---------|--------|
+| Egress failed — bastion NAT not enabled | Two-step egress: VM sets route, bastion enables NAT. Both must be active |
+| wget tried IPv6 first, timed out | Bastion NAT is IPv4-only; always use `-4` with wget through lab egress |
+| Disk 96% full, couldn't download alongside old model | 60 GB root is tight with 20 GB model + Docker + CUDA toolkits |
+| bastion netman lacks NOPASSWD for iptables | Consider adding sudoers rule for egress scripts on bastion |

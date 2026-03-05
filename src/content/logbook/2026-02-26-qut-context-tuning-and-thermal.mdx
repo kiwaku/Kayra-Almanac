@@ -1,0 +1,157 @@
+---
+title: "Qut: Context Tuning and P40 Thermal Crash"
+date: "2026-02-26"
+tags: ["ai", "hephaestus", "inference", "hardware", "proxmox", "qwen"]
+project: qut
+images:
+  - "/artifacts/hephaestus/IMG_3715.webp"
+anomaly: true
+---
+
+Diagnosing why code quality felt worse after the Qwen3.5 upgrade, discovering the KV cache was spilling from VRAM to system RAM, tuning context from 128k to 64k — and then the P40 overheated hard enough to disappear from the PCIe bus entirely.
+
+<br />
+
+### The quality problem
+
+After the Qwen3.5 upgrade and LiteLLM removal, `claude-local` connected and responded fine. Speed was good (~42 t/s). But code quality was noticeably weaker than expected — more hallucinations, worse multi-step reasoning, less coherent edits. Something was off.
+
+---
+
+<br />
+
+### Root cause: KV cache spilling to RAM
+
+The P40 has 24GB VRAM. At the time:
+
+- Model weights (Q4_K_M): ~19.7GB
+- KV cache for 128k context: ~4.5–6GB
+- Total: ~24–26GB — exceeds VRAM
+
+`nvidia-smi` showed 23.4GB used (the ceiling before spill). The remaining KV cache was being served from system RAM over the PCIe bus, which is roughly 10x slower than VRAM. The model could still generate tokens, but long-range reasoning quality degrades significantly when the attention layers can't access their cache at full speed.
+
+### Why this model is special
+
+Qwen3.5-35B-A3B has a hybrid architecture: 30 of 40 layers use Gated DeltaNet / Mamba2-style linear attention (almost zero KV cache growth with context length), while only 10 layers use standard attention (these generate the KV cache). Context scaling is dramatically cheaper than a pure transformer. The spill only happened because 128k pushed even the small attention subset over the VRAM limit.
+
+---
+
+<br />
+
+### The fix: 128k to 64k
+
+Changed `-c 131072` to `-c 65536` in the llama-server systemd unit:
+
+```bash
+ssh cuda "sudo sed -i 's/-c 131072/-c 65536/' /etc/systemd/system/llama-server.service"
+ssh cuda 'sudo systemctl daemon-reload && sudo systemctl restart llama-server'
+```
+
+VRAM usage dropped from 23.4GB to 22.1GB — about 2.4GB of headroom. KV cache fits entirely on GPU at 64k context.
+
+### Context size reference for P40 + Qwen3.5-35B-A3B Q4_K_M
+
+| Context | KV cache (approx) | Total VRAM | Fits on GPU? |
+|---------|--------------------|------------|--------------|
+| 32k | ~1.2–1.8GB | ~22.5GB | Yes — maximum headroom |
+| **64k** | **~2.2–3.2GB** | **~23.4GB** | **Yes — practical max** |
+| 128k | ~4.5–6GB | ~24+ GB | No — partial spill to RAM |
+| 262k | ~8–10GB | Needs 3090+ | No |
+
+64k is the practical maximum for full-GPU residency on the P40 with this model. 32k gives maximum quality headroom if 64k ever feels soft.
+
+---
+
+<br />
+
+### P40 thermal crash
+
+During this session, while testing `claude-local` on multiple clients with the 64k context server running, the CUDA VM crashed with `internal-error` status in Proxmox.
+
+**Error log:**
+```
+QEMU[3087]: kvm: vfio_err_notifier_handler(0000:02:00.0)
+             Unrecoverable error detected.
+             Please collect any data possible and then kill the guest
+
+kernel: pcieport 0000:00:02.0: PCIe Bus Error:
+        severity=Uncorrectable (Fatal), type=Transaction Layer
+kernel: pcieport 0000:00:02.0: [ 5] SDES (Surprise Down Error Status) (First)
+kernel: pcieport 0000:00:02.0: [14] CmpltTO (Completion Timeout)
+```
+
+The P40 hit a PCIe completion timeout and surprise down — the GPU stopped responding on the PCIe bus entirely. VFIO detected the unrecoverable error and killed the guest VM.
+
+---
+
+<br />
+
+### Recovery
+
+**Attempt 1 — `qm stop 100`:** VM stopped, but GPU stuck in D3cold. `lspci` showed `Unknown header type 7f` — the PCIe device descriptor was corrupted.
+
+**Attempt 2 — PCIe remove + rescan:** `echo 1 > /sys/bus/pci/devices/.../remove` followed by a bus rescan. Failed — `Data Link Layer Link Active not set`. The physical PCIe link was down.
+
+**Attempt 3 — host reboot:** The P40 did NOT re-enumerate on the PCI bus. Only the Quadro P400 (display GPU) appeared. The P40 was completely gone from the system.
+
+**Attempt 4 — full power off:** `poweroff` then physical power button. A reboot alone doesn't cut power to PCIe slots — only a full power cycle resets the slot power. After power-on, the P40 came back at 26C. Started CUDA VM, llama-server loaded, health check passed.
+
+---
+
+<br />
+
+### Root cause: thermal
+
+The P40 is a passive-cooled datacenter GPU (250W TDP) designed for server chassis with directed airflow. It's running in a consumer tower with only a single desk fan pointed at the backplate.
+
+<img src="/artifacts/hephaestus/IMG_3715.webp" alt="Back of PC showing cooling state at time of thermal crash — mellanox fans installed but no GPU heatsink" loading="lazy" /> Under sustained inference load (19.7GB model + 64k context, continuous generation across multiple clients), the card overheated. The GPU firmware initiated a thermal shutdown, which manifested as a PCIe fatal error to the host.
+
+**Mitigation:**
+- **Immediate:** Don't run CUDA VM continuously. Start on demand, use it, stop it.
+- **Short-term:** Aftermarket heatsink + thermal pads (1.0mm) for the P40 backplate (ordered).
+- **Long-term:** Consider a proper server chassis with directed airflow, or a blower-style GPU cooler mod.
+
+---
+
+<br />
+
+### Performance flags (post-crash)
+
+After the power cycle recovery, applied cache precision flags recommended by sudoingX for improved code quality and single-user optimization:
+
+```
+--cache-type-k q8_0 --cache-type-v q8_0 -np 1
+```
+
+- `--cache-type-k/v q8_0` — raises KV cache precision from default to q8_0. Less quantization noise in long-context reasoning. Improves coherence in agentic loops more than it affects raw speed.
+- `-np 1` — single parallel slot. Optimizes for single-user workloads, which is exactly the use case (one person using Claude Code or Aider at a time).
+
+Updated service file:
+```ini
+ExecStart=/usr/local/bin/llama-server \
+  -m /home/kudakuda/llm/models/Qwen3.5-35B-A3B/Qwen3.5-35B-A3B-Q4_K_M.gguf \
+  --port 8080 \
+  --host 0.0.0.0 \
+  -ngl 99 \
+  -c 65536 \
+  --jinja \
+  --flash-attn on \
+  --cache-type-k q8_0 \
+  --cache-type-v q8_0 \
+  -np 1
+```
+
+VRAM with q8_0 cache: 21.4GB — actually slightly less than before (q8_0 more efficient than the default f16 cache). CUDA VM shut down after applying — will remain off until the heatsink arrives.
+
+---
+
+<br />
+
+### Mistakes and lessons
+
+| Mistake | Lesson |
+|---------|--------|
+| Set 128k context on P40 without checking VRAM budget | Always verify VRAM headroom — code quality degrades silently when KV cache spills to RAM |
+| Ran sustained inference on a passive-cooled GPU in a consumer tower | P40 needs directed airflow; a desk fan isn't enough for continuous multi-client load |
+| Tried soft recovery (reboot) after PCIe fatal error | GPU PCIe slot needs full power cycle to reset — reboot alone doesn't cut slot power |
+| Didn't monitor GPU temperature during testing | Add `nvidia-smi` temp checks to the workflow; thermal shutdown gives no warning in the logs |

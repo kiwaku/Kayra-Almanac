@@ -3,7 +3,9 @@ title: "ORBIT-RXTX: Stage 1 Bring-up & NanoVNA Results"
 date: "2026-02-07"
 tags: ["rf", "hardware", "orbit-rxtx", "measurements", "nanovna"]
 project: orbit-rxtx
-images: []
+images:
+  - "/artifacts/orbit-rxtx/IMG_3551.webp"
+  - "/artifacts/orbit-rxtx/IMG_3742.webp"
 anomaly: false
 ---
 
@@ -14,6 +16,8 @@ NanoVNA S11 measurements on crossed dual-band Yagi. Indoor bench verification �
 <br />
 
 ## Hardware / setup
+
+<img src="/artifacts/orbit-rxtx/IMG_3551.webp" alt="Crossed dual-band Yagi antenna, pre-mounting" loading="lazy" />
 
 - **Antenna:** crossed dual-band Yagi (U/V sections)
 - **UHF section:** 430–440 MHz (70 cm)
@@ -64,6 +68,18 @@ NanoVNA S11 measurements on crossed dual-band Yagi. Indoor bench verification �
 ### Verdict
 
 −15 dB at 145.8 MHz and broad ≤ −10 dB across VHF is usable for receive. UHF similarly meets the bar. Move on to operational receive testing (SDR + balcony placement) rather than further tuning.
+
+---
+
+<br />
+
+## AntRunner mounting
+
+At high elevation angles, the Yagi's element branches intersected with the AntRunner rotator arm and stand — the antenna couldn't sweep past ~60° without physical contact. Custom extenders were fabricated to raise the antenna above the collision zone, secured with dog teeth clamps.
+
+<img src="/artifacts/orbit-rxtx/IMG_3742.webp" alt="AntRunner rotator with custom extenders and dog teeth clamps, clearing the antenna branches" loading="lazy" />
+
+Rotator assembly completed with the extenders in place. Full Az/El sweep confirmed clear at all angles.
 
 ---
 

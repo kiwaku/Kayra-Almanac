@@ -3,7 +3,8 @@ title: "Ferrum II: Wire-to-Inference Build Session"
 date: "2026-02-14"
 tags: ["ai", "security", "hephaestus", "gpudirect", "rdma", "cuda", "connectx-3", "tesla-p40", "ferrum"]
 project: ferrum-ii
-images: []
+images:
+  - "/artifacts/hephaestus/IMG_3703.webp"
 anomaly: false
 ---
 
@@ -23,6 +24,10 @@ Created VM 104 (`wire-to-inference`) on Proxmox instead of extending the existin
 | NIC 1 | ConnectX-3 Pro Card 1, `0000:03:00.0`, PCIe 3.0 x8 |
 | NIC 2 | ConnectX-3 Pro Card 2, `0000:09:00.0`, PCIe 2.0 x4 (M.2 riser) |
 | Mgmt | virtio on vmbr2, 192.168.100.104/24 |
+
+Both ConnectX-3 Pro cards with active cooling in place — Card 1 in PCIe x16_2, Card 2 on the M.2 riser.
+
+<img src="/artifacts/hephaestus/IMG_3703.webp" alt="Both ConnectX-3 Pro cards mounted with cooling fans" loading="lazy" />
 
 Initial OS: Ubuntu 22.04.5 with NVIDIA driver 550.163.01 + CUDA 12.4, rdma-core, nvidia-peermem. Post-install verified: GPU, RDMA (`rocep2s0` + `rocep3s0`), nvidia-peermem loaded, PCIe topology (GPU0 ↔ NIC0 ↔ NIC1 all PHB).
 

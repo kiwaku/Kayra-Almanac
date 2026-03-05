@@ -1,0 +1,144 @@
+---
+title: "Qut: Client Setup Scripts and Auth Isolation"
+date: "2026-02-26"
+tags: ["ai", "claude-code", "aider", "hephaestus", "automation"]
+project: qut
+images: []
+anomaly: false
+---
+
+Automating Qut client setup with idempotent scripts for lab VMs and external machines, discovering the Claude Code auth conflict when local and paid credentials coexist, and fixing it with `CLAUDE_CONFIG_DIR` isolation.
+
+<br />
+
+### Why automate
+
+Log 2 documented manual client setup — installing aider, Claude Code, adding aliases by hand on each machine. It worked, but it was error-prone and slow. Every new VM meant repeating the same steps, hitting the same gotchas (wrong shell rc file, missing NOPASSWD, orphaned alias fragments). Two scripts were created to handle everything: one for lab VMs on vmbr2, one for external machines connecting via SSH tunnel.
+
+---
+
+<br />
+
+### setup-vmbr2.sh (lab VMs)
+
+For machines on 192.168.100.0/24 that can reach the CUDA VM directly:
+
+- Detects shell (zsh/bash) and picks the correct rc file
+- Checks connectivity to CUDA VM on port 8080
+- Enables egress, installs aider + Node.js + Claude Code, disables egress
+- Adds `claude-local` and `aider-local` aliases with proper env vars
+- Creates `~/.claude-local/` config directory (see auth section below)
+- Runs a health check against the inference server
+
+### setup-external.sh (Mac/Linux outside the lab)
+
+For machines that need an SSH tunnel through the bastion:
+
+- Detects OS (macOS vs Linux) for package manager differences
+- Installs aider + Node.js + Claude Code
+- Prompts for bastion hostname/user (defaults: 10.13.235.50, netman)
+- Adds `Host bastion` and `Host cuda-tunnel` entries to `~/.ssh/config` with ProxyJump, LocalForward (8080 + 3000), and ExitOnForwardFailure
+- Adds aliases, creates `~/.claude-local/`
+- Checks tunnel connectivity if already up
+
+Both scripts are idempotent — safe to re-run. Existing aliases are updated (sed delete + append), SSH config blocks aren't duplicated, already-installed tools are skipped. Saved to `.claude/skills/client_setup/`.
+
+---
+
+<br />
+
+### Testing on Kali
+
+```bash
+scp setup-vmbr2.sh kali:~/
+ssh kali 'chmod +x ~/setup-vmbr2.sh && ~/setup-vmbr2.sh'
+```
+
+**Problem 1: sudo in non-interactive SSH.** The script needs sudo for `egress-on`, `apt-get`, and `npm install -g`. Kali's `kirin` user has scoped NOPASSWD for lab tools only (arping, ip, tcpdump) — not for package management. Non-interactive SSH can't handle password prompts.
+
+Fix: run the script interactively — `ssh kali` then `./setup-vmbr2.sh`. The sudo password prompt works fine with a TTY.
+
+**Problem 2: orphaned alias fragment.** A previous manual setup had left a broken line at line 259 in `~/.zshrc`: `ANTHROPIC_MODEL="..." claude'` — no `alias` keyword, unmatched single quote. This broke zsh parsing entirely, so `source ~/.zshrc` gave an `unmatched '` error and no aliases loaded.
+
+Fix: `sed -i '259d' ~/.zshrc` — removed the orphan line. The new aliases (written by the script at the bottom of the file) then worked correctly.
+
+---
+
+<br />
+
+### Testing on external Linux laptop
+
+Script ran successfully. Required:
+
+1. SSH key generation on the laptop (`ssh-keygen -t ed25519`)
+2. Key distribution to the bastion (`ssh-copy-id` from a machine with existing access, since bastion only accepts pubkey auth)
+3. `ssh -fN cuda-tunnel` to start the tunnel
+4. `source ~/.bashrc` then `claude-local` / `aider-local`
+
+One gotcha: the first run was done as root instead of the daily user. SSH keys, aliases, and config all landed under root's home — useless. Re-ran as the normal user.
+
+---
+
+<br />
+
+### The auth conflict
+
+After install, `claude-local` started but every message returned ECONNREFUSED. Claude Code printed:
+
+```
+⚠ Auth conflict: Both a token (ANTHROPIC_AUTH_TOKEN) and an API key
+(ANTHROPIC_API_KEY) are set. This may lead to unexpected behavior.
+```
+
+**Root cause:** Claude Code stores credentials in `~/.claude/credentials.json` (set during first login or OAuth). This gets loaded internally as `ANTHROPIC_AUTH_TOKEN`. Our alias set `ANTHROPIC_API_KEY=sk-1234`. When both exist, Claude Code prefers the stored auth token (which points at `api.anthropic.com`), ignores `ANTHROPIC_BASE_URL`, and gets ECONNREFUSED because the VM has no internet route.
+
+On Kali, the credentials file contained `{"apiKey":"sk-local-1234"}` — left over from earlier manual testing in Log 2.
+
+Simply deleting `~/.claude/credentials.json` fixes `claude-local` but breaks native `claude` (paid Anthropic). You'd have to re-login every time you switch. Not acceptable.
+
+---
+
+<br />
+
+### The fix: CLAUDE_CONFIG_DIR
+
+`CLAUDE_CONFIG_DIR` tells Claude Code to use a completely separate config directory. This is the official method documented in Anthropic's GitHub issues and used by LM Studio, Ollama, and every serious local-LLM + Claude Code setup.
+
+Updated alias (single-line, zsh-safe):
+```bash
+alias claude-local='CLAUDE_CONFIG_DIR=$HOME/.claude-local ANTHROPIC_BASE_URL=http://192.168.100.100:8080 ANTHROPIC_API_KEY=sk-1234 ANTHROPIC_AUTH_TOKEN=sk-1234 ANTHROPIC_MODEL=claude-3-5-sonnet-20241022 claude'
+```
+
+Key details:
+- `CLAUDE_CONFIG_DIR=$HOME/.claude-local` — isolated config directory, never sees real credentials
+- Both `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` set to `sk-1234` — no conflict
+- `~/.claude-local/.claude.json` with `{"hasCompletedOnboarding": true}` — skip the onboarding wizard
+
+Result: `claude` (native/paid) and `claude-local` (local Qwen) coexist perfectly. Three-agent setup confirmed working: `claude`, `claude-local`, `aider-local`.
+
+---
+
+<br />
+
+### Files created
+
+```
+.claude/skills/client_setup/
+├── SKILL.md              # Documentation + troubleshooting
+├── setup-vmbr2.sh        # Lab VM script (Kali, Victim, etc.)
+└── setup-external.sh     # Mac/Linux laptop script (SSH tunnel)
+```
+
+---
+
+<br />
+
+### Mistakes and lessons
+
+| Mistake | Lesson |
+|---------|--------|
+| Ran setup script via non-interactive SSH | Must run interactively on VMs with password-required sudo |
+| Old orphaned alias fragment broke zsh | Setup scripts should check for broken syntax in rc files, or at minimum warn |
+| Used only `ANTHROPIC_API_KEY` in alias | Stored credentials override env vars — must isolate with `CLAUDE_CONFIG_DIR` |
+| Put onboarding bypass in `~/.claude.json` | With `CLAUDE_CONFIG_DIR`, it must be `~/.claude-local/.claude.json` — path follows config dir |
+| Ran external script as root | SSH keys, aliases, and config land under root's home — useless for the daily user |

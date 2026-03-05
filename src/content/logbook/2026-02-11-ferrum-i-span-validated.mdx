@@ -3,11 +3,36 @@ title: "Ferrum I: SPAN-to-PCAP Truth Pipeline Validated"
 date: "2026-02-11"
 tags: ["security", "hephaestus", "networking", "span", "pcap", "ferrum"]
 project: ferrum-i
-images: []
+images:
+  - "/artifacts/hephaestus/IMG_3539_2.webp"
+  - "/artifacts/hephaestus/IMG_3701.webp"
+  - "/artifacts/hephaestus/IMG_3702.webp"
+  - "/artifacts/hephaestus/IMG_3704.webp"
+  - "/artifacts/hephaestus/IMG_3713.webp"
 anomaly: false
 ---
 
 Full end-to-end SPAN mirror validation session. L2 and L3 proofs captured, two blockers resolved (GS105E VLAN isolation + bridge MAC learning), permanent fixes applied.
+
+<br />
+
+### Hardware prep: ConnectX-3 mounting and cooling
+
+Before any software validation, the two ConnectX-3 cards needed to be physically installed and cooled. Card 2 goes on the M.2→x16 powered riser — the motherboard jumper configuration had to be verified first to ensure the M.2 slot was in the correct PCIe mode, and the Dell power module for the riser needed a voltage check before anything was mounted.
+
+<img src="/artifacts/hephaestus/IMG_3539_2.webp" alt="Motherboard zoom — verifying jumper pin configuration for M.2 adapter" loading="lazy" />
+
+<img src="/artifacts/hephaestus/IMG_3701.webp" alt="Dell power module voltage test for the new M.2-to-x16 adapter" loading="lazy" />
+
+Both ConnectX-3 cards installed — Card 1 in PCIe x16_2, Card 2 on the M.2 riser. The ConnectX-3 is passively cooled by default, which is fine in a server chassis with directed airflow but not in a consumer tower under sustained RDMA load. Cooling fans were attached to both cards before any testing.
+
+<img src="/artifacts/hephaestus/IMG_3702.webp" alt="Both ConnectX-3 cards mounted, one on M.2 adapter, pre fan attachment" loading="lazy" />
+
+<img src="/artifacts/hephaestus/IMG_3704.webp" alt="ConnectX-3 cards with cooling fans attached, close-up" loading="lazy" />
+
+<img src="/artifacts/hephaestus/IMG_3713.webp" alt="Both ConnectX-3 cards mounted with fans, wide shot showing PCIe layout" loading="lazy" />
+
+---
 
 <br />
 

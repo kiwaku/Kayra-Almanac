@@ -6,10 +6,11 @@ domain: ["ai", "security"]
 status: "active"
 featured: false
 badges: ["ai/ml"]
-summary: "<strong>Private AI coding lab</strong> — local inference on a Tesla P40, dual-agent workflow, and network-isolated infrastructure. Built after abandoning third-party agent platforms over supply-chain security concerns.<ul><li>Qwen3-Coder-30B on P40 via llama.cpp (free, unlimited, private)</li><li>Dual-agent: Claude (architect) + Aider/Qwen (executor)</li><li>Air-gapped vmbr2 topology — code never leaves the network</li><li>Replaced MoltBot/OpenClaw after ClawHub malware campaigns</li></ul>"
+summary: "<strong>Private AI coding lab</strong> — local inference on a Tesla P40, three-agent workflow, and network-isolated infrastructure. Built after abandoning third-party agent platforms over supply-chain security concerns.<ul><li>Qwen3.5-35B-A3B on P40 via llama.cpp (free, unlimited, private)</li><li>Three agents: Claude (reviewer) + claude-local (architect) + Aider/Qwen (executor)</li><li>Air-gapped vmbr2 topology — code never leaves the network</li><li>Replaced MoltBot/OpenClaw after ClawHub malware campaigns</li></ul>"
 artifacts:
   diagram: ""
-images: []
+images:
+  - "/artifacts/qut/IMG_3798.webp"
 related: ["hephaestus", "moltbot"]
 ---
 
@@ -25,14 +26,14 @@ Rather than hardening a platform built on a compromised ecosystem, Qut takes the
 
 ### At a glance
 
-- **Inference server:** llama.cpp on CUDA VM (192.168.100.100), Tesla P40 24GB
-- **Model:** Qwen3-Coder-30B-A3B, Q4_K_M quantization (18.6GB), 32K context, ~40-60 tok/s
-- **Translation layer:** LiteLLM proxy (OpenAI → Anthropic API format)
+- **Inference server:** llama.cpp on CUDA VM (192.168.100.100), Tesla P40 24GB, native Anthropic + OpenAI endpoints
+- **Model:** Qwen3.5-35B-A3B, Unsloth Dynamic 2.0 UD-Q4_K_XL (20.6GB), 96K context, q4_0 KV cache, ~41 t/s
 - **Chat UI:** Open WebUI (Docker, localhost-only)
-- **Agentic coding:** Aider (direct to llama-server, bypasses LiteLLM)
-- **Cloud agent:** Claude Code (paid Anthropic API, full agentic capability)
+- **Local agentic coding:** claude-local (Claude Code against local model, `CLAUDE_CONFIG_DIR` isolated) + Aider
+- **Cloud agent:** Claude Code (paid Anthropic API, full agentic capability, final reviewer)
 - **Network:** vmbr2 (192.168.100.0/24), air-gapped by default, egress opt-in via bastion NAT
 - **Clients:** Any vmbr2 VM (direct) or Mac (via SSH tunnel through bastion)
+- **Client setup:** Automated scripts for lab VMs (`setup-vmbr2.sh`) and external machines (`setup-external.sh`)
 
 ---
 
@@ -44,12 +45,13 @@ Rather than hardening a platform built on a compromised ecosystem, Qut takes the
 ┌─────────────────────────────────────────────────────────┐
 │  CUDA VM (192.168.100.100) — INFERENCE SERVER ONLY      │
 │                                                         │
-│  llama-server :8080 ──► Tesla P40 (Qwen3-Coder-30B)    │
-│  LiteLLM      :4000 ──► translates OpenAI → Anthropic  │
+│  llama-server :8080 ──► Tesla P40 (Qwen3.5-35B-A3B)    │
+│    ├── /v1/messages        (Anthropic, for claude-local)│
+│    └── /v1/chat/completions (OpenAI, for aider-local)   │
 │  Open WebUI   :3000 ──► chat UI (Docker)                │
 │                                                         │
 │  No project files. No Claude Code. Just inference.      │
-│  All three auto-start on boot (systemd + Docker).       │
+│  Both auto-start on boot (systemd + Docker).            │
 └──────────────────────────┬──────────────────────────────┘
                            │ vmbr2 (192.168.100.0/24)
             ┌──────────────┼──────────────┐
@@ -57,16 +59,17 @@ Rather than hardening a platform built on a compromised ecosystem, Qut takes the
      ┌──────┴──────┐ ┌────┴────┐  ┌──────┴──────┐
      │ kali  :20   │ │victim:30│  │ any VM ...  │
      │ claude-local │ │claude-l │  │ claude-l    │
+     │ aider-local │ │aider-l  │  │ aider-l     │
      │ ↕ files     │ │↕ files  │  │ ↕ files     │
      └─────────────┘ └─────────┘  └─────────────┘
             │
      ┌──────┴──────────────────────────────────────┐
      │ Mac (via SSH tunnel through bastion)         │
-     │ claude + aider-local for Mac-local projects  │
+     │ claude + claude-local + aider-local          │
      └─────────────────────────────────────────────┘
 ```
 
-The CUDA VM is the brain — it loads the model into GPU memory and serves an OpenAI-compatible REST API. It has no project files, no credentials, no coding tools. If it were somehow compromised, there's nothing useful on it. Defense in depth.
+The CUDA VM is the brain — it loads the model into GPU memory and serves both Anthropic and OpenAI-compatible REST APIs natively from a single llama-server process. No translation proxy needed. It has no project files, no credentials, no coding tools. If it were somehow compromised, there's nothing useful on it. Defense in depth.
 
 Client VMs are where the work happens. They hold the project files, run the coding agents, and send prompts to the CUDA VM over the internal network. The Mac connects via SSH tunnel through the bastion — prompts and completions travel the tunnel, but source code never leaves the Mac.
 
@@ -74,19 +77,19 @@ Client VMs are where the work happens. They hold the project files, run the codi
 
 <br />
 
-### The dual-agent workflow
+### The three-agent workflow
 
-The real payoff of the setup: two AI agents working on the same project simultaneously, each with different strengths.
+The real payoff of the setup: three AI frontends, each with different strengths, all sharing the same project files and git repo.
 
-**Agent 1 — Claude (paid, cloud):** Deep reasoning, complex architecture decisions, understanding large codebases, catching subtle bugs. The senior architect. You go to it for the hard problems.
+**claude-local (Lead Architect / Creative Director):** Claude Code talking to the local Qwen3.5 model. Long context, natural agent loops, unlimited usage, fully private. The one you open first for planning, brainstorming, and the "beautiful demo feel." Free and local.
 
-**Agent 2 — Aider + Qwen (free, local):** Fast iteration, unlimited usage, multi-file edits, auto-commits, no rate limits. The fast executor. You give it clear tasks and it delivers.
+**aider-local (Senior Engineer):** Aider talking to the same Qwen3.5 model. Fast execution, transparent edits, auto-commits to git, architect mode for plan-then-execute workflows. The one you give clear tasks and it delivers. Free and local.
 
-A typical session: open two terminals in the same project directory. Ask Claude to review the auth flow and identify security issues. While it thinks, give Aider the input validation tasks from yesterday's plan. Claude returns with three findings and a fix strategy. You hand the strategy to Aider, which implements it across eight files, runs the tests, and auto-commits. You're the coordinator — Claude thinks, Aider executes.
+**claude (Principal / Final Reviewer):** Paid Anthropic Claude Code. Full agentic capability with the strongest reasoning model available. You escalate to it for the hard problems, final reviews, or when the local model starts looping. Metered but unmatched.
 
-They share the same files and git repo. When Aider commits a change, Claude sees it on the next file read. The workflow is sequential through you, not parallel between agents. Think of it as pair programming where you're the driver and the two AIs are navigators taking turns.
+You are the Project Manager — you decide who works on what and when. A typical session: ask claude-local to plan a feature and save it to PLAN.md. Hand the plan to aider-local to implement. When it commits, ask claude-local to review. If something is subtle or wrong, escalate to paid claude for a final opinion.
 
-**Why not just use one?** Claude alone is powerful but metered — you wouldn't burn expensive API calls on "add docstrings to these 20 functions." The local model alone is fast and free but weaker on complex reasoning — you wouldn't trust it to design your auth architecture. Both together: best of both worlds.
+**Why three?** Paid Claude alone is powerful but metered — you wouldn't burn expensive API calls on routine implementation. The local model alone is fast and free but weaker on complex reasoning. claude-local and aider-local serve different interaction patterns (conversational agent vs. structured editor). All three together: best of all worlds.
 
 ---
 
@@ -143,22 +146,32 @@ Qut sidesteps the problem entirely. There is no skill marketplace. There is no g
 # Start SSH tunnel (Mac, one-time per session)
 ssh -fN cuda
 
-# AI-assisted coding with local model (free, unlimited)
+# Agentic coding with local model — fast executor (free, unlimited)
 cd ~/my-project && aider-local
 
-# AI-assisted coding with Claude (paid, powerful)
+# Agentic coding with local model — Claude Code interface (free, unlimited)
+cd ~/my-project && claude-local
+
+# Agentic coding with paid Claude (powerful, metered)
 cd ~/my-project && claude
 
 # Chat with local model in browser
 open http://localhost:3000
 
-# Chat with local model in terminal (no file editing)
-cd ~/my-project && claude-local
-
 # Check GPU / model status
 ssh cuda 'nvidia-smi'
 ssh cuda 'curl -s localhost:8080/v1/models | python3 -m json.tool'
 
-# Restart inference services
-ssh cuda 'sudo systemctl restart llama-server litellm-proxy'
+# Restart inference server
+ssh cuda 'sudo systemctl restart llama-server'
 ```
+
+---
+
+<br />
+
+### Changelog
+
+- **Feb 22** — Initial build. Qwen3-Coder-30B-A3B on P40, LiteLLM proxy, 32k context. Claude Code chat-only (tool-calling broken through LiteLLM), Aider pivot for agentic coding.
+- **Feb 26** — Upgraded to Qwen3.5-35B-A3B (hybrid Mamba2/attention architecture). Rebuilt llama.cpp for native Anthropic endpoint, removed LiteLLM entirely. Context tuned to 64k (128k caused KV cache spill to RAM). Created automated client setup scripts. Fixed auth conflict with `CLAUDE_CONFIG_DIR` isolation — three-agent coexistence confirmed. P40 thermal crash during sustained load; heatsink ordered. Added q8_0 KV cache precision and single-slot optimization.
+- **Feb 28** — Aftermarket heatsink installed on P40. Ziptie chaining with steel bar reinforcement for clamping pressure. Bottom mellanox fan flipped to feed air directly into GPU heatsink. Angled exhaust fan added. Thermal validation: 62°C peak under sustained load (32°C headroom to throttle), GPU safe for continuous use. Context tuned from 64k/q8_0 to 96k/q4_0 — 50% more context, less VRAM, same speed. Swapped to Unsloth Dynamic 2.0 UD-Q4_K_XL quantization for improved tool-calling and coding quality.

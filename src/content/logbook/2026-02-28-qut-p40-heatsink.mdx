@@ -1,0 +1,161 @@
+---
+title: "Qut: P40 Heatsink Install + Context Tuning (96k/q4_0)"
+date: "2026-02-28"
+tags: ["ai", "hephaestus", "hardware", "thermal", "tesla-p40", "inference"]
+project: qut
+images:
+  - "/artifacts/qut/IMG_3782.webp"
+  - "/artifacts/qut/IMG_3783.webp"
+  - "/artifacts/qut/IMG_3784.webp"
+  - "/artifacts/qut/IMG_3798.webp"
+  - "/artifacts/qut/IMG_3802.webp"
+  - "/artifacts/hephaestus/IMG_3715.webp"
+anomaly: false
+---
+
+Installing the aftermarket heatsink on the Tesla P40 after the thermal crash documented in the previous session, validating thermals under sustained inference, and tuning context from 64k/q8_0 to 96k/q4_0. The P40 is a passive-cooled 250W datacenter GPU running in a consumer tower — sustained inference load caused a PCIe fatal error and full GPU disappearance from the bus.
+
+<br />
+
+### Teardown
+
+Custom GPU fan module and voltage adapter chunk removed from the P40 to expose the die for heatsink contact.
+
+<img src="/artifacts/qut/IMG_3782.webp" alt="GPU fan module and voltage adapter removed from P40, ready for heatsink modification" loading="lazy" />
+
+---
+
+<br />
+
+### Heatsink clamping
+
+No standard mounting bracket fits the P40's datacenter form factor. Solution: ziptie chaining with steel reinforcement bars to create uniform clamping pressure across the heatsink.
+
+<img src="/artifacts/qut/IMG_3784.webp" alt="Heatsink clamping method — ziptie chain with steel bars, heatsink side" loading="lazy" />
+
+<img src="/artifacts/qut/IMG_3783.webp" alt="Heatsink clamping method — ziptie chain, GPU side" loading="lazy" />
+
+---
+
+<br />
+
+### Airflow configuration
+
+Post heatsink attachment. The bottom mellanox card fan is flipped to send air directly into the GPU heatsink from below. A black angled fan is positioned to push air into the heatsink and out the back of the case.
+
+<img src="/artifacts/qut/IMG_3798.webp" alt="Post heatsink — top-down view showing fan airflow into GPU heatsink" loading="lazy" />
+
+<img src="/artifacts/qut/IMG_3802.webp" alt="Side angle showing tight clearance between heatsink, fans, and case" loading="lazy" />
+
+The side angle shows how tight the space is — less than a centimeter between the heatsink fins and the mellanox card above. Every fan placement is deliberate: bottom fan pushes into the heatsink, angled fan pushes air through and out the back.
+
+For reference, the cooling state before the heatsink — just mellanox fans, no GPU cooling beyond a desk fan on the backplate:
+
+<img src="/artifacts/hephaestus/IMG_3715.webp" alt="Back of PC before heatsink install — mellanox fans only, no GPU heatsink" loading="lazy" />
+
+---
+
+<br />
+
+### Thermal validation
+
+Cold boot baseline after heatsink install: 26°C / 50W / 0% utilization.
+
+**Test 1: Short burst (2048 tokens, 64k/q8_0 config)**
+
+| Phase | Temp | Power | Util |
+|-------|------|-------|------|
+| Idle  | 29°C | 51W   | 0%   |
+| Peak  | 43°C | 143W  | 97%  |
+
+41.4 tok/s. No issues.
+
+**Test 2: Sustained `claude-local` session (~15 min, 64k/q8_0)**
+
+This is the exact workload that caused the PCIe crash in the previous session — multi-turn agentic code generation from Mac via SSH tunnel.
+
+| Metric | Value |
+|--------|-------|
+| **Duration** | ~15 minutes continuous |
+| **Peak temp** | **62°C** |
+| **Sustained temp** | 52–59°C under load |
+| **Peak power** | 202W (of 250W TDP) |
+| **Sustained power** | 150–190W |
+| **Utilization** | 97–100% during generation |
+| **Idle cooldown** | Drops to 43–45°C within 30s |
+| **Throttle point** | 94°C — **32°C of headroom** |
+
+```
+Time (UTC)    Temp   Power    Util   VRAM
+18:12:56      40°C   137W     97%    21412 MiB
+18:13:41      50°C   184W    100%    21412 MiB   <- prompt eval burst
+18:14:06      55°C   194W    100%    21422 MiB
+18:15:06      52°C   159W     97%    21422 MiB   <- sustained generation
+18:17:36      55°C   181W    100%    21422 MiB
+18:19:46      47°C   196W     97%    21426 MiB   <- new turn after idle
+18:20:26      56°C   188W    100%    21426 MiB
+18:22:36      59°C   193W    100%    21452 MiB   <- context growing
+18:26:37      61°C   203W    100%    21484 MiB   <- peak power
+18:26:52      62°C   197W    100%    21484 MiB   <- PEAK TEMP
+18:27:17      55°C    65W      0%    21484 MiB   <- generation done, cooldown
+18:28:07      50°C   142W     97%    21484 MiB   <- next turn
+18:33:12      53°C    63W      0%    21496 MiB   <- session ending
+```
+
+**Verdict: Heatsinks work. P40 is safe for continuous use.** Previously this exact workload caused a PCIe fatal error. Now it peaks at 62°C with 32°C of headroom to the 94°C throttle point.
+
+---
+
+<br />
+
+### Context tuning: 64k/q8_0 to 96k/q4_0
+
+64k context was thermally safe but too small for claude-code's agentic workflow. A single pytest run (7899 lines of output) exceeded the context window:
+
+```
+API Error: 400 {"error":{"code":400,"message":"request (71747 tokens) exceeds the
+available context size (65536 tokens)","type":"exceed_context_size_error"}}
+```
+
+Claude-code accumulates system prompt + conversation history + tool call outputs. Multi-step tasks with test output regularly blow past 64k.
+
+**The squeeze on 24 GB VRAM:**
+
+| Context | KV cache (q8_0) | KV cache (q4_0) | Total VRAM | Fits P40? |
+|---------|-----------------|-----------------|------------|-----------|
+| 32k     | ~1.2 GB         | ~0.6 GB         | ~20.3 GB   | Yes       |
+| 64k     | ~1.8 GB         | ~0.9 GB         | ~20.6 GB   | Yes       |
+| **96k** | **~2.7 GB**     | **~1.4 GB**     | **~21.1 GB** | **Yes (q4_0 only)** |
+| 128k    | ~3.6 GB         | ~1.8 GB         | ~21.5 GB   | Marginal  |
+| 128k    | ~4.5 GB (q8_0)  | —               | ~24.2 GB   | Spills    |
+
+**Fix:** increase context to 96k while halving KV cache precision to q4_0. The Qwen3.5-35B-A3B hybrid architecture (only 10/40 layers use standard attention) means KV cache is already small — q4_0 precision loss is diluted across the 30 linear-attention layers that don't use KV cache at all.
+
+```diff
+- -c 65536 --cache-type-k q8_0 --cache-type-v q8_0
++ -c 98304 --cache-type-k q4_0 --cache-type-v q4_0
+```
+
+| | Before (64k/q8_0) | After (96k/q4_0) |
+|---|---|---|
+| **Context window** | 65,536 tokens | **98,304 tokens** (+50%) |
+| **KV precision** | q8_0 | q4_0 |
+| **VRAM used** | 21.5 GB | **21.2 GB** (less!) |
+| **VRAM free** | 2.9 GB | **3.2 GB** |
+| **Inference speed** | 41.4 tok/s | **40.7 tok/s** (~same) |
+| **Peak temp** | 43°C (short test) | 46°C (short test) |
+
+50% more context, slightly less VRAM, virtually identical speed. Post-tuning `claude-local` session confirmed q4_0 KV doesn't meaningfully degrade agentic code quality for this model.
+
+---
+
+<br />
+
+### Auth conflict fix (recurring)
+
+The `~/.claude-local` config dir accumulated a cached `userID` from OAuth, causing:
+```
+Auth conflict: Both a token (claude.ai) and an API key (ANTHROPIC_API_KEY) are set.
+```
+
+Fix: `rm -rf ~/.claude-local && mkdir -p ~/.claude-local` — fresh config dir. The `userID` field in `.claude.json` is what triggers the conflict. If it returns, nuke the config dir.

@@ -175,3 +175,17 @@ ssh cuda 'sudo systemctl restart llama-server'
 - **Feb 22** — Initial build. Qwen3-Coder-30B-A3B on P40, LiteLLM proxy, 32k context. Claude Code chat-only (tool-calling broken through LiteLLM), Aider pivot for agentic coding.
 - **Feb 26** — Upgraded to Qwen3.5-35B-A3B (hybrid Mamba2/attention architecture). Rebuilt llama.cpp for native Anthropic endpoint, removed LiteLLM entirely. Context tuned to 64k (128k caused KV cache spill to RAM). Created automated client setup scripts. Fixed auth conflict with `CLAUDE_CONFIG_DIR` isolation — three-agent coexistence confirmed. P40 thermal crash during sustained load; heatsink ordered. Added q8_0 KV cache precision and single-slot optimization.
 - **Feb 28** — Aftermarket heatsink installed on P40. Ziptie chaining with steel bar reinforcement for clamping pressure. Bottom mellanox fan flipped to feed air directly into GPU heatsink. Angled exhaust fan added. Thermal validation: 62°C peak under sustained load (32°C headroom to throttle), GPU safe for continuous use. Context tuned from 64k/q8_0 to 96k/q4_0 — 50% more context, less VRAM, same speed. Swapped to Unsloth Dynamic 2.0 UD-Q4_K_XL quantization for improved tool-calling and coding quality.
+
+---
+
+<br />
+
+### Build logs
+
+- [Inference Server Build](/logbook/2026-02-22-qut-inference-server)
+- [Clients, Claude Code Failure, and the Aider Pivot](/logbook/2026-02-22-qut-clients-and-aider)
+- [Qwen3.5 Upgrade and LiteLLM Removal](/logbook/2026-02-26-qut-qwen35-upgrade)
+- [Client Setup Scripts and Auth Isolation](/logbook/2026-02-26-qut-client-scripts)
+- [Context Tuning and P40 Thermal Crash](/logbook/2026-02-26-qut-context-tuning-and-thermal)
+- [P40 Heatsink Install + Context Tuning (96k/q4_0)](/logbook/2026-02-28-qut-p40-heatsink)
+- [Unsloth Dynamic 2.0 Model Refresh](/logbook/2026-02-28-qut-unsloth-model-refresh)

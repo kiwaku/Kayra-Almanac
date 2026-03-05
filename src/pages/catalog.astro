@@ -7,10 +7,11 @@ import ProjectBadges from '../components/ProjectBadges.astro';
 
 const displayOrder = ['hephaestus', 'qut', 'orbit-rxtx', 'ferrum-ii', 'ferrum-i', 'redllm', 'himorogi', 'sentinel', 'crest-snn', 'moltbot'];
 const unsorted = await getCollection('projects');
-const all = displayOrder
+const ordered = displayOrder
   .map(id => unsorted.find(p => p.data.id === id))
-  .filter(Boolean)
-  .concat(unsorted.filter(p => !displayOrder.includes(p.data.id)));
+  .filter((p): p is typeof unsorted[number] => p !== undefined);
+const rest = unsorted.filter(p => !displayOrder.includes(p.data.id));
+const all = [...ordered, ...rest];
 
 // Generate markdown list of all projects
 const rawMarkdown = `# Catalog — All Projects

@@ -68,7 +68,7 @@ const projectLogs = allLogs
           {projectLogs.map(log => (
             <li>
               <span class="log-date">{log.data.date}</span>
-              <a href={`/logbook#${log.id.split('/').pop()}`}>{log.data.title}</a>
+              <a href={`/logbook/${log.slug}`}>{log.data.title}</a>
             </li>
           ))}
         </ul>

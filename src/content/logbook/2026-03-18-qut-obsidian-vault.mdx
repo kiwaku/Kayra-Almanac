@@ -3,7 +3,8 @@ title: "Qut: Obsidian Vault Export"
 date: "2026-03-18"
 tags: ["ai", "hephaestus", "obsidian", "knowledge-graph"]
 project: qut
-images: []
+images:
+  - "/artifacts/qut/knowledge-graph-obsidian.png"
 anomaly: false
 ---
 
@@ -101,6 +102,8 @@ Updated `generate-digest.sh` to write the daily digest as `~/Obsidian/Hephaestus
 | 2026-03-31 | 85,957 | Local snapshot — continued growth from observations and research |
 
 The jump from 540 to 84k reflects the knowledge graph's rapid growth via automated entity extraction (`extract-entities.sh` running hourly via Hermes cron). Each finding or topic processed by the CUDA NER pipeline generates dozens of entity nodes.
+
+<div class="diagram-section"><a href="/artifacts/qut/knowledge-graph-obsidian.png" class="lightbox"><img src="/artifacts/qut/knowledge-graph-obsidian.png" alt="Obsidian graph view of the knowledge graph — 82k+ entity nodes rendered as a dense galaxy of interconnected clusters" loading="lazy" /></a></div>
 
 ---
 

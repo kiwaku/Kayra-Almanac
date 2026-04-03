@@ -11,6 +11,7 @@ artifacts:
   diagram: ""
 images:
   - "/artifacts/qut/IMG_3798.webp"
+  - "/artifacts/qut/knowledge-graph-obsidian.png"
 related: ["hephaestus", "moltbot"]
 ---
 
@@ -147,6 +148,8 @@ In March 2026, the inference stack grew beyond coding agents into an autonomous 
 **Observation pipeline.** Every 15 minutes, `observe.sh` runs 8 collectors (active app, browser URL, terminal commands with intent classification, git status, recent files, CUDA status, system metrics, ActivityWatch data). A rule-based classifier tags each observation as ESCALATE/DIGEST/STORE/IGNORE — replacing a failed attempt at sub-1B local LLM classification. IGNORE observations are skipped without touching CUDA.
 
 **Knowledge graph.** `knowledge.db` stores everything the system learns: 82k+ entity nodes, 143k+ edges, typed relationships (mentions, related_to, found_via, answers, derived_from). Entity extraction runs hourly via Qwen NER. Pattern detection finds co-occurring entities. Hypothesis generation identifies structural gaps worth researching.
+
+<div class="diagram-section"><a href="/artifacts/qut/knowledge-graph-obsidian.png" class="lightbox"><img src="/artifacts/qut/knowledge-graph-obsidian.png" alt="Obsidian graph view of the knowledge graph — 82k+ entity nodes rendered as a dense galaxy of interconnected clusters" loading="lazy" /></a></div>
 
 **Sophia curiosity engine.** Three-signal scoring: novelty (how new relative to the graph), mastery (is the system making progress on this topic), coherence (does it connect to the user's active projects). Dynamic weighting shifts with user activity — deep work sessions increase coherence weight, idle time increases curiosity weight.
 

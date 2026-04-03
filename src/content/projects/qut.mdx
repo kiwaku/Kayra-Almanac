@@ -6,7 +6,7 @@ domain: ["ai", "security"]
 status: "active"
 featured: false
 badges: ["ai/ml"]
-summary: "<strong>Private AI coding lab</strong> — local inference on a Tesla P40, three-agent workflow, and network-isolated infrastructure. Built after abandoning third-party agent platforms over supply-chain security concerns.<ul><li>Qwen3.5-35B-A3B on P40 via llama.cpp (free, unlimited, private)</li><li>Three agents: Claude (reviewer) + claude-local (architect) + Aider/Qwen (executor)</li><li>Air-gapped vmbr2 topology — code never leaves the network</li><li>Replaced MoltBot/OpenClaw after ClawHub malware campaigns</li></ul>"
+summary: "<strong>Private AI lab</strong> — local inference on a Tesla P40, three-agent coding workflow, autonomous research assistant, and a knowledge graph with 82k+ entities. Built after abandoning third-party agent platforms over supply-chain security concerns.<ul><li>Qwen3.5-35B-A3B on P40 via llama.cpp (free, unlimited, private)</li><li>Three coding agents: Claude (reviewer) + claude-local (architect) + Aider/Qwen (executor)</li><li>Autonomous assistant (Hermes): observe, classify, research, deliver daily digests via Discord</li><li>Knowledge graph + Sophia curiosity engine + Obsidian vault (85k+ files)</li></ul>"
 artifacts:
   diagram: ""
 images:
@@ -14,11 +14,9 @@ images:
 related: ["hephaestus", "moltbot"]
 ---
 
-Qut is a private AI coding lab running on Hephaestus — a self-hosted inference server, a dual-agent development workflow, and a network topology designed so that source code and AI queries never leave the local network. The name comes from Old Turkic: qut is the divine life-force that Tengri grants to those capable of wielding it. Not a god, not a servant — the intelligence itself.
+Qut is a private AI lab running on Hephaestus — a self-hosted inference server, a three-agent coding workflow, an autonomous research assistant, and a knowledge graph that accumulates everything the system learns. The name comes from Old Turkic: qut is the divine life-force that Tengri grants to those capable of wielding it. Not a god, not a servant — the intelligence itself.
 
-The project exists because the alternative didn't survive contact with reality. [MoltBot](/projects/moltbot) was the original plan: a multi-channel AI agent orchestration system built on the OpenClaw runtime, with skill-based architecture, hybrid memory, and sandboxed tool execution. The design was sound. The ecosystem was not. In January 2026, Koi Security disclosed 341+ malicious skills in ClawHub (OpenClaw's public skill repository) — backdoors, credential exfiltrators, and prompt injection payloads disguised as productivity tools. Separately, Shodan scans found 1,009+ OpenClaw gateways exposed to the public internet with no authentication. The skill system that was supposed to be a feature had become a supply chain attack surface.
-
-Rather than hardening a platform built on a compromised ecosystem, Qut takes the opposite approach: no third-party agent runtime, no skill marketplace, no gateway exposed to anything. Just a local model on a local GPU, talked to by local clients, on an air-gapped network segment. The intelligence is sovereign — it runs on your iron and answers to no one else's cloud.
+The project started as a reaction to [MoltBot](/projects/moltbot)'s failure — the OpenClaw ecosystem's supply-chain problems (341+ malicious ClawHub skills, 1,009+ exposed gateways) made third-party agent runtimes untenable. Qut took the opposite approach: local model, local GPU, air-gapped network. But it didn't stop at coding agents. In March 2026, the inference stack grew an autonomous layer: a Discord-resident assistant (Hermes) that observes activity, classifies what's interesting, searches the web, accumulates findings in a knowledge graph, and delivers daily research digests. The system now operates continuously — researching, learning, and reporting — whether or not anyone is talking to it.
 
 ---
 
@@ -140,6 +138,28 @@ Qut sidesteps the problem entirely. There is no skill marketplace. There is no g
 
 <br />
 
+### Autonomous assistant
+
+In March 2026, the inference stack grew beyond coding agents into an autonomous research assistant. The system observes what the user is doing, decides what's interesting, searches the web, accumulates knowledge, and delivers daily digests — all running unattended on the same P40 that serves the coding workflow.
+
+**Hermes** is the unified conversational and scheduling layer. It replaced OpenClaw's fragmented launchd scheduling with 11 cron jobs, manages 27+ skills (including the Sophia curiosity engine and autoresearch loop), and owns Discord interaction via the "Honda Civic HB 1992" bot on the QUT server.
+
+**Observation pipeline.** Every 15 minutes, `observe.sh` runs 8 collectors (active app, browser URL, terminal commands with intent classification, git status, recent files, CUDA status, system metrics, ActivityWatch data). A rule-based classifier tags each observation as ESCALATE/DIGEST/STORE/IGNORE — replacing a failed attempt at sub-1B local LLM classification. IGNORE observations are skipped without touching CUDA.
+
+**Knowledge graph.** `knowledge.db` stores everything the system learns: 82k+ entity nodes, 143k+ edges, typed relationships (mentions, related_to, found_via, answers, derived_from). Entity extraction runs hourly via Qwen NER. Pattern detection finds co-occurring entities. Hypothesis generation identifies structural gaps worth researching.
+
+**Sophia curiosity engine.** Three-signal scoring: novelty (how new relative to the graph), mastery (is the system making progress on this topic), coherence (does it connect to the user's active projects). Dynamic weighting shifts with user activity — deep work sessions increase coherence weight, idle time increases curiosity weight.
+
+**Dual scoring model.** identity_score ("who you are" — durable, provenance-weighted, with floors so 3-year interests never decay) and activity_score ("what's live now" — 7-day exponential decay). A 3-year OpenAI ChatGPT export (1,084 conversations) provides the identity foundation.
+
+**Obsidian vault.** The knowledge graph exports to `~/Obsidian/Hephaestus/` as 85k+ markdown files with wikilinks and YAML frontmatter. Daily digest notes create a chronological browsing surface. Both identity and activity scores are visible in frontmatter.
+
+**Autoresearch.** Automated ML training experiments (forked Karpathy nanochat) time-share the P40 with inference — stop llama-server, train for 5-7 minutes, restart, ingest results. Key finding: FP32 is 7.5x faster than FP16 on Pascal (no tensor cores).
+
+---
+
+<br />
+
 ### Quick reference
 
 ```bash
@@ -175,6 +195,14 @@ ssh cuda 'sudo systemctl restart llama-server'
 - **Feb 22** — Initial build. Qwen3-Coder-30B-A3B on P40, LiteLLM proxy, 32k context. Claude Code chat-only (tool-calling broken through LiteLLM), Aider pivot for agentic coding.
 - **Feb 26** — Upgraded to Qwen3.5-35B-A3B (hybrid Mamba2/attention architecture). Rebuilt llama.cpp for native Anthropic endpoint, removed LiteLLM entirely. Context tuned to 64k (128k caused KV cache spill to RAM). Created automated client setup scripts. Fixed auth conflict with `CLAUDE_CONFIG_DIR` isolation — three-agent coexistence confirmed. P40 thermal crash during sustained load; heatsink ordered. Added q8_0 KV cache precision and single-slot optimization.
 - **Feb 28** — Aftermarket heatsink installed on P40. Ziptie chaining with steel bar reinforcement for clamping pressure. Bottom mellanox fan flipped to feed air directly into GPU heatsink. Angled exhaust fan added. Thermal validation: 62°C peak under sustained load (32°C headroom to throttle), GPU safe for continuous use. Context tuned from 64k/q8_0 to 96k/q4_0 — 50% more context, less VRAM, same speed. Swapped to Unsloth Dynamic 2.0 UD-Q4_K_XL quantization for improved tool-calling and coding quality.
+- **Mar 01-10** — OpenClaw Discord bot setup. Persistent Discord-resident assistant ("Honda Civic HB 1992" on the QUT server) connected to Qwen via autossh tunnel. Fought OpenClaw's model config system (3 API type attempts, Ollama discovery hook wiping config, deprecated format). Stabilized SSH tunnel with ControlMaster bypass. Discovered infinite retry loop bug — switched to direct `openclaw message send` for all automated delivery.
+- **Mar 10-15** — Hybrid Autonomy (12 phases). Built the full autonomous pipeline: queue.db (SQLite WAL, 6 tables), 7-collector observation system (15-min cycle), rule-based classifier (ESCALATE/DIGEST/STORE/IGNORE — replaced failed sub-1B local LLM attempt), CUDA interpretation dispatch, 3 hunt lanes (tech-scout/paper-radar/security-watch), 12 Discord commands, digest generation, weekly backup. Two-mode architecture: Mode A (CUDA offline, queue everything) / Mode B (CUDA online, process everything).
+- **Mar 11** — Autoresearch. Forked Karpathy's nanochat for automated ML training on the P40, time-sharing VRAM with inference. Ported to Pascal (SDPA replacing FA3, torch.compile disabled). Discovered FP32 is 7.5x faster than FP16 on the P40 — Pascal has no tensor cores, so FP16 runs on the same ALUs with conversion overhead.
+- **Mar 12** — Context compaction fix. Lowered OpenClaw's contextWindow from 96k to 65k (actual llama-server still at 96k) to trigger compaction before hitting the real limit. Fixed UTF-8 crash from Japanese YouTube titles in observations.
+- **Mar 15-18** — Search, curiosity, and knowledge graph. Replaced Brave API (HTTP 402) with self-hosted SearXNG. Built knowledge.db (nodes, edges, searches, events) with flock serialization. Hourly entity extraction via Qwen NER. Sophia curiosity engine: 3-signal scoring (novelty/mastery/coherence) with dynamic weighting based on user activity. Retired single-signal curiosity.sh.
+- **Mar 18** — Hermes consolidation. Replaced fragmented launchd + OpenClaw scheduling with Hermes as unified conversational and scheduling layer. 10 scripts retired, 8+ launchd plists replaced by 11 Hermes cron jobs. Fixed 119 backlogged findings (6 days undelivered). Obsidian vault export — knowledge graph rendered as 540 browsable markdown files with wikilinks and daily notes at ~/Obsidian/Hephaestus/.
+- **Mar 25** — Interest signal pipeline. Dual scoring model: identity_score ("who you are," durable, provenance-weighted) + activity_score ("what's live now," 7-day decay). Imported 3-year OpenAI ChatGPT history (1,084 conversations, 471 new nodes). Interest inbox at ~/interests/inbox/ for importing PDFs, markdown, etc.
+- **Mar 29** — Entity dedup. Knowledge graph had grown to 86,874 entity nodes with thousands of duplicates. Phase 1: deterministic normalization (3,969 merged in 4 seconds). Phase 2: token blocking + RapidFuzz + Qwen LLM judgment (861 merged across 48,200 candidate pairs, ~3.5h GPU time, 4 crash-restarts over residential WiFi). Final graph: 82,105 entities, 143,050 edges, 0 false merges. Obsidian vault re-exported to 84,036 files.
 
 ---
 
@@ -189,3 +217,12 @@ ssh cuda 'sudo systemctl restart llama-server'
 - [Context Tuning and P40 Thermal Crash](/logbook/2026-02-26-qut-context-tuning-and-thermal)
 - [P40 Heatsink Install + Context Tuning (96k/q4_0)](/logbook/2026-02-28-qut-p40-heatsink)
 - [Unsloth Dynamic 2.0 Model Refresh](/logbook/2026-02-28-qut-unsloth-model-refresh)
+- [OpenClaw Discord Bot Setup](/logbook/2026-03-01-qut-openclaw-setup)
+- [Hybrid Autonomy (Phases 1-12)](/logbook/2026-03-10-qut-hybrid-autonomy)
+- [Autoresearch — Nanochat on the P40](/logbook/2026-03-11-qut-autoresearch-nanochat)
+- [OpenClaw Context Compaction Fix](/logbook/2026-03-12-qut-compaction-fix)
+- [Search, Curiosity & Knowledge Graph](/logbook/2026-03-15-qut-search-knowledge-graph)
+- [Hermes Agent Consolidation](/logbook/2026-03-18-qut-hermes-consolidation)
+- [Obsidian Vault Export](/logbook/2026-03-18-qut-obsidian-vault)
+- [Interest Signal Pipeline](/logbook/2026-03-25-qut-interest-signals)
+- [Knowledge Graph Entity Dedup](/logbook/2026-03-29-qut-entity-dedup)

@@ -1,0 +1,67 @@
+---
+title: "Qut: P40 Thermal Crash — PCIe Fatal Error"
+date: "2026-02-26"
+tags: ["ai", "hephaestus", "hardware", "cuda", "proxmox"]
+project: qut
+images:
+  - "/artifacts/hephaestus/IMG_3715.webp"
+anomaly: true
+---
+
+The Tesla P40 overheated under sustained multi-client inference, disappeared from the PCIe bus entirely, and required a full power cycle to recover.
+
+<br />
+
+### What happened
+
+During a session testing `claude-local` across multiple clients with 64k context, the CUDA VM crashed with `internal-error` in Proxmox.
+
+```
+QEMU[3087]: kvm: vfio_err_notifier_handler(0000:02:00.0)
+             Unrecoverable error detected.
+             Please collect any data possible and then kill the guest
+
+kernel: pcieport 0000:00:02.0: PCIe Bus Error:
+        severity=Uncorrectable (Fatal), type=Transaction Layer
+kernel: pcieport 0000:00:02.0: [ 5] SDES (Surprise Down Error Status) (First)
+kernel: pcieport 0000:00:02.0: [14] CmpltTO (Completion Timeout)
+```
+
+The GPU hit a PCIe completion timeout and surprise down — it stopped responding on the bus. VFIO detected the unrecoverable error and killed the guest VM.
+
+---
+
+<br />
+
+### Recovery attempts
+
+| Attempt | Result |
+|---------|--------|
+| `qm stop 100` | VM stopped, GPU stuck in D3cold. `lspci` showed `Unknown header type 7f` — corrupted PCIe descriptor |
+| PCIe remove + rescan | Failed — `Data Link Layer Link Active not set`, physical link down |
+| Host reboot | P40 did NOT re-enumerate. Only Quadro P400 visible. GPU completely gone from system |
+| **Full power off** | **P40 came back at 26°C.** CUDA VM started, llama-server loaded, health check passed |
+
+A reboot alone doesn't cut power to PCIe slots — only a full power cycle (shutdown + physical power button) resets slot power and clears the GPU's thermal shutdown state.
+
+---
+
+<br />
+
+### Root cause
+
+<div class="diagram-section"><a href="/artifacts/hephaestus/IMG_3715.webp" class="lightbox"><img src="/artifacts/hephaestus/IMG_3715.webp" alt="Back of PC showing cooling state at time of thermal crash — desk fan only, no GPU heatsink" loading="lazy" /></a></div>
+
+The P40 is a passive-cooled datacenter GPU (250W TDP) designed for server chassis with directed airflow. It was running in a consumer tower with a single desk fan pointed at the backplate. Under sustained inference load (19.7GB model, 64k context, continuous generation across multiple clients), the card overheated. The GPU firmware initiated a thermal shutdown, which manifested as a PCIe fatal error to the host.
+
+---
+
+<br />
+
+### Mitigation
+
+- **Immediate:** Don't run CUDA VM continuously. Start on demand, use it, stop it.
+- **Short-term:** Aftermarket heatsink + thermal pads (1.0mm) for the P40 backplate (ordered).
+- **Long-term:** Consider a proper server chassis with directed airflow, or a blower-style GPU cooler mod.
+
+The heatsink solution was later implemented and documented in the [P40 heatsink build log](/logbook/2026-02-28-qut-p40-heatsink). Peak temperature under sustained load dropped to 62°C — 32°C headroom to the 94°C throttle point.

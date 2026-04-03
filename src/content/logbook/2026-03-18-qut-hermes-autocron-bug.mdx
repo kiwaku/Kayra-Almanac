@@ -1,0 +1,54 @@
+---
+title: "Qut: Hermes auto_cron Declarations-Only Bug"
+date: "2026-03-18"
+tags: ["ai", "hephaestus", "hermes", "automation"]
+project: qut
+images: []
+anomaly: false
+---
+
+Hermes `auto_cron` entries in `config.yaml` are declarations-only — they don't actually execute. Two cron jobs silently never ran for 6 days after migration.
+
+<br />
+
+### What happened
+
+After migrating from launchd plists to Hermes cron, `daily_reflection` (09:00 daily) and `weekly_habit_observer` (10:00 Sundays) were declared in the `auto_cron` section of `~/.hermes/config.yaml`. They looked correct. No errors on startup. But they never ran.
+
+Discovery came during a post-migration verification audit — checking which jobs had actually produced output. Both jobs had zero runs.
+
+---
+
+<br />
+
+### Root cause
+
+`auto_cron` in `config.yaml` is a **declaration** — it tells Hermes what jobs *could* exist. But only entries in `jobs.json` (the runtime job store) actually get scheduled and executed. Declaring a job in config.yaml does not create it in jobs.json.
+
+The other 9 cron jobs worked because they had been explicitly created via `hermes cron create` during the migration. These two were added to config.yaml afterwards, assuming the config declaration was sufficient.
+
+---
+
+<br />
+
+### Fix
+
+```bash
+hermes cron create --name "daily-reflection" \
+  --schedule "0 9 * * *" \
+  --prompt "Run daily reflection"
+
+hermes cron create --name "weekly-habit-observer" \
+  --schedule "0 10 * * 0" \
+  --prompt "Run weekly habit observer"
+```
+
+Verified with `hermes cron list` — both now appear and execute on schedule.
+
+---
+
+<br />
+
+### Lesson
+
+Declarative config does not equal imperative execution. Always verify with `hermes cron list` after adding jobs — if it's not in the list output, it's not running. The `auto_cron` section is useful as documentation but misleading as a source of truth.

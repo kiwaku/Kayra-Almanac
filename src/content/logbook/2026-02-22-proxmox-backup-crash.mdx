@@ -1,0 +1,49 @@
+---
+title: "Hephaestus: Proxmox Crash — Backup Disk Full"
+date: "2026-02-22"
+tags: ["hephaestus", "proxmox", "infrastructure"]
+project: hephaestus
+images: []
+anomaly: true
+---
+
+Proxmox host froze during a model download on the CUDA VM. 69GB of accumulated VM backups had filled the 94GB root partition.
+
+<br />
+
+### What happened
+
+A scheduled backup job had been silently accumulating VM snapshots in `/var/lib/vz/dump/` — the default backup storage location on the root partition. No retention policy was configured, so every backup persisted indefinitely. By the time of the crash, 69GB of `vzdump-*` files sat on a 94GB root disk.
+
+The immediate trigger: VM 111's backup failed with a broken pipe when disk space hit zero. `pveproxy` began spamming "No space left on device" errors. The web UI became unresponsive, then the host froze entirely. SSH sessions dropped.
+
+---
+
+<br />
+
+### Recovery
+
+Physical console access to the host. After reboot:
+
+```bash
+du -sh /var/lib/vz/dump/     # 69GB of vzdump-* files
+rm /var/lib/vz/dump/vzdump-*  # freed 69GB
+```
+
+The CUDA VM came back cleanly after the host recovered — the interrupted model download was retried successfully via wget.
+
+---
+
+<br />
+
+### Root cause
+
+No backup retention policy. Proxmox's default backup scheduler creates dumps but never prunes old ones unless explicitly configured. On a host with a small root partition, this is a ticking time bomb.
+
+---
+
+<br />
+
+### Lesson
+
+Configure backup retention (`keep-last`, `keep-daily`, etc.) or move backup storage to a dedicated mount. Never leave `/var/lib/vz/dump/` on the root partition without retention limits.

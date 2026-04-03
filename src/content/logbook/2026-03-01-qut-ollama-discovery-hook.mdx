@@ -1,0 +1,46 @@
+---
+title: "Qut: Ollama Discovery Hook Wiping Config"
+date: "2026-03-01"
+tags: ["ai", "hephaestus", "openclaw", "discord"]
+project: qut
+images: []
+anomaly: false
+---
+
+OpenClaw's auto-discovery hook for Ollama was silently overwriting custom model provider config on every gateway restart.
+
+<br />
+
+### Symptom
+
+Custom model providers defined in `~/.openclaw/agents/main/agent/models.json` kept disappearing. Every time the OpenClaw gateway restarted, the file was regenerated with default content — the carefully configured CUDA VM provider gone.
+
+---
+
+<br />
+
+### Root cause
+
+Ollama was installed on the Mac (from earlier experimentation). OpenClaw has a startup discovery hook that probes `localhost:11434` to find Ollama models. When the probe triggers — even if Ollama isn't running — the hook regenerates `models.json` with whatever it discovers, overwriting any manual entries.
+
+The probe itself is enough to trigger the overwrite. The hook doesn't check whether the file has been manually edited.
+
+---
+
+<br />
+
+### Fix
+
+Two-part:
+
+1. **Uninstall Ollama** — `brew uninstall ollama` and `rm -rf ~/.ollama`. The hook still probes port 11434 on every restart (harmless WARN in logs, tracked as GitHub #3740), but with nothing listening it doesn't overwrite anything.
+
+2. **Move providers to `openclaw.json`** — The top-level `"models"` block in `openclaw.json` is the user's config and is hook-proof. The agent-level `models.json` is treated as auto-discoverable and subject to regeneration.
+
+---
+
+<br />
+
+### Lesson
+
+Auto-discovery hooks in frameworks can destroy manual configuration. Put custom config where hooks can't reach — user-level config files, not auto-managed ones.

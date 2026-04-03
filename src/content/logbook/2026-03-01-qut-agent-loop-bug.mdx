@@ -1,0 +1,53 @@
+---
+title: "Qut: OpenClaw 141-Retry Agent Loop Bug"
+date: "2026-03-01"
+tags: ["ai", "hephaestus", "openclaw", "discord", "qwen"]
+project: qut
+images: []
+anomaly: true
+---
+
+OpenClaw's agent loop entered an infinite retry cycle when programmatically delivering messages — 141 tool calls in 10 minutes, zero useful output.
+
+<br />
+
+### Trigger
+
+Early testing used `openclaw agent` for automated delivery (cron job results, research findings, scheduled digests). The agent was instructed to send a message to a Discord channel. When the `message` tool validation failed with error "message required", Qwen retried the tool call instead of aborting.
+
+141 consecutive retries. The entire 10-minute agent timeout burned. Thousands of tokens generated — all tool call attempts. Session context polluted. No useful response ever produced.
+
+---
+
+<br />
+
+### Why it looped
+
+The failure mode is a feedback loop between the model and the tool framework:
+
+1. Agent calls the `message` tool
+2. Tool returns validation error: "message required"
+3. Model interprets the error as "try again with the correct format"
+4. Model emits another tool call — same format, same error
+5. Repeat until hard timeout (10 minutes)
+
+Qwen3.5 is especially prone to this because it aggressively retries failed tool calls rather than escalating or giving up. There's no retry limit in OpenClaw's agent loop — only the global timeout kills it.
+
+---
+
+<br />
+
+### The fix
+
+**Hard rule: never use `openclaw agent` for non-interactive delivery.** For anything automated (cron, digests, research results), bypass the LLM entirely:
+
+```bash
+openclaw message send \
+  --channel discord \
+  --target "channel:1480687290928988172" \
+  --message "text content here"
+```
+
+This sends the message directly through the Discord API — no agent loop, no tool calls, no model involvement, no retry risk. Instant delivery.
+
+The agent loop is only used for interactive conversations where a human is in the loop to break pathological behavior.

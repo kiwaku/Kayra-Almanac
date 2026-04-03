@@ -1,0 +1,53 @@
+---
+title: "Ferrum I: GS105E VLAN Isolation and Bridge MAC Learning Blockers"
+date: "2026-02-11"
+tags: ["security", "hephaestus", "networking", "span", "ferrum"]
+project: ferrum-i
+images: []
+anomaly: false
+---
+
+Two blockers that prevented L3 traffic from flowing through the SPAN mirror pipeline. L2 (ARP broadcasts) worked fine — only unicast ICMP was silently dropped.
+
+<br />
+
+### Blocker 1: GS105E port-based VLAN isolation
+
+The GS105E managed switch had port-based VLAN isolation enabled. The mirror configuration (port 1 → port 5) worked because **port mirroring bypasses VLAN isolation** — mirrored copies are sent regardless of VLAN membership. But normal L2 forwarding between ports (port 1 ↔ port 2, i.e., kali ↔ victim) was blocked by the VLAN rules.
+
+This made it look like the mirror was working (sniffer saw ARP) but the actual traffic path was broken (no ICMP between kali and victim).
+
+**Fix:** Disabled port-based VLAN on the GS105E via the web management UI. All ports now forward freely at L2.
+
+---
+
+<br />
+
+### Blocker 2: vmbr1 bridge MAC learning
+
+With VLANs fixed, unicast ICMP still didn't reach the sniffer. ARP broadcasts arrived fine.
+
+The Proxmox bridge `vmbr1` was learning MAC addresses from the mirror traffic arriving on `nic1` (GS105E port 5). When the bridge saw a frame with kali's MAC as the *source* on nic1 (via mirror), it recorded: "kali's MAC is reachable via nic1." Later, when a unicast frame destined *for* kali's MAC arrived on nic1 (also via mirror), the bridge said: "destination MAC is on the same port as source — drop it." Only unicast was affected; broadcasts (ARP) bypass this logic.
+
+**Fix:**
+```bash
+bridge link set dev nic1 learning off
+```
+
+Made permanent in `/etc/network/interfaces` so it survives reboots. With MAC learning disabled on the mirror port, the bridge forwards all received frames to all bridge members — exactly what a sniffer port needs.
+
+---
+
+<br />
+
+### Result
+
+After both fixes: `ping -I eth1 -c 5 10.99.99.2` → 5/5 received, 0% loss, ~0.5ms avg. Sniffer captured 15 ICMP packets (both directions mirrored). Full L2+L3 SPAN pipeline validated.
+
+---
+
+<br />
+
+### Lesson
+
+SPAN mirror ports have different forwarding rules than normal switch ports — mirroring bypasses VLAN isolation, but the receiving bridge still applies its own MAC learning logic. When debugging "mirror works for broadcast but not unicast," check both the switch VLAN config and the bridge learning state on the receiving interface.

@@ -1,0 +1,147 @@
+---
+title: "Qut: Scripts & Pipelines Reference"
+date: "2026-03-29"
+tags: ["ai", "hephaestus", "openclaw", "automation"]
+---
+
+## Infrastructure Scripts
+
+All at `~/.openclaw/scripts/`.
+
+### queue-db.sh (12 commands)
+
+```bash
+queue-db.sh init                  # Create all tables
+queue-db.sh enqueue <lane> <payload>
+queue-db.sh dequeue               # Get next pending job
+queue-db.sh complete <job_id>
+queue-db.sh fail <job_id>
+queue-db.sh status                # Queue stats and current mode
+queue-db.sh log-event <type> <data>
+queue-db.sh budget-check          # Notification budget remaining
+queue-db.sh budget-inc            # Increment budget counter
+queue-db.sh state-get <key>
+queue-db.sh state-set <key> <value>
+queue-db.sh drain-ready           # Pending jobs (Mode B only)
+```
+
+<br />
+
+## Observation Pipeline
+
+```bash
+observe.sh                        # Orchestrator: runs collectors, merges, classifies
+  app.sh                          # Active app + window title (osascript)
+  browser.sh                      # URL + page title (ActivityWatch primary, osascript fallback)
+  command.sh                      # Terminal commands + intent signals
+  repo.sh                         # Git status of watched repos
+  files.sh                        # Recently modified files
+  runtime.sh                      # CUDA status, queue depth, running jobs
+  system.sh                       # Memory, CPU, disk
+```
+
+Intent signals from command.sh: `coding`, `debugging`, `deploying`, `researching`, `claude_session`. Detects loops (same command 3+ times).
+
+### Classification Rules (in observe.sh)
+
+```
+ESCALATE  if  mem > 90%  or  (CUDA down AND queue > 2)  or  loop detected
+DIGEST    if  mode changed  or  git branch changed  or  burst >5 events
+          or  mem > 85%  or  intent = debugging/coding  or  claude session
+STORE     if  dirty files > 5  or  autoresearch running  or  cmd count > 3
+IGNORE    everything else
+```
+
+<br />
+
+## Interpretation and Actions
+
+```bash
+interpret.sh                      # 30-min (Mode B), dispatches:
+```
+
+| Action | Result |
+|--------|--------|
+| `ignore` | Marked processed |
+| `store_only` | Logged to events table |
+| `digest_candidate` | Inserted to findings table |
+| `proactive_message` | Discord message (budget-gated, downgrades to digest if exhausted) |
+| `propose_memory` | Suggest MEMORY.md entry |
+| `queue_autoresearch` | Enqueue research job |
+| `auto_search` | Dispatch search-router.sh |
+
+<br />
+
+## Search and Research
+
+```bash
+search-router.sh "<query>" --mode quick     # Ephemeral SearXNG search
+search-router.sh "<query>" --mode research  # Stores findings, ingests to KG
+run-hunt.sh <lane>                          # Execute specific hunt lane
+hunt-ingest.sh                              # Dual JSON parser -> findings table
+generate-digest.sh                          # Group by lane, star ratings, format
+```
+
+<br />
+
+## Knowledge Graph Operations
+
+```bash
+extract-entities.sh               # Qwen NER -> nodes + mentions edges (hourly)
+detect-patterns.sh                # Co-occurrence analysis
+generate-hypotheses.sh            # Graph structure -> testable hypotheses
+generate-research-questions.sh    # Gap identification
+export-to-obsidian.sh             # -> ~/Obsidian/Hephaestus/
+  --all                           # Full re-export
+  --type entity|finding|topic     # Filter by node type
+  --since YYYY-MM-DD              # Only after date
+```
+
+<br />
+
+## Scoring and Ingestion
+
+```bash
+backfill-confidence.sh            # Two-pass: identity_score + activity_score
+ingest-interests.sh               # Watch ~/interests/inbox/ (PDF/TXT/MD/HTML/JSON/CSV)
+ingest-openai-export.py           # Import ChatGPT history from conversations.zip
+ingest-conversations.sh           # Discord messages -> KG events
+```
+
+<br />
+
+## Autoresearch
+
+```bash
+autoresearch-train.sh             # Atomic cycle:
+                                  #   systemctl stop llama-server
+                                  #   train (~5-7 min)
+                                  #   systemctl start llama-server
+                                  #   ingest results to knowledge.db + queue.db
+```
+
+<br />
+
+## Health and Lifecycle
+
+```bash
+health-check.sh                   # Probe localhost:8081/health (5-min)
+                                  #   Success: mode=B, triggers drain + interpret
+                                  #   Failure: mode=A, logs event
+drain-queue.sh [--all]            # Process pending jobs lane-by-lane
+backup.sh                         # Hot SQLite .backup, config tarball, rotate to 10
+```
+
+<br />
+
+## Dedup
+
+```bash
+dedup-entities.sh --exact-only    # Phase 1: deterministic normalization
+dedup-phase2.py                   # Phase 2: token blocking + RapidFuzz + Qwen
+  --dry-run                       # Preview only
+  --fuzz-threshold 90             # RapidFuzz score cutoff
+  --batch-size 10                 # Pairs per LLM prompt
+  --limit N                       # Cap entity count
+dedup-phase2-runner.sh            # Auto-restart wrapper (CUDA lock, caffeinate, 50 retries)
+```

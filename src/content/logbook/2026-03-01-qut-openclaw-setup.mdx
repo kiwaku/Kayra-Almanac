@@ -151,7 +151,7 @@ This configuration has been stable since deployment.
 
 <br />
 
-### Agent Loop and Delivery Gotchas
+### Agent Loop and Delivery Pitfalls
 
 **The infinite retry loop.** Early testing used `openclaw agent` to programmatically send messages (for cron jobs, automated research delivery). When the `message` tool validation failed (error: "message required"), Qwen would retry the tool call. And retry. And retry. 141 tool calls in a row, burning through the entire 10-minute agent timeout, generating thousands of tokens, polluting the session context, and never producing a useful response.
 

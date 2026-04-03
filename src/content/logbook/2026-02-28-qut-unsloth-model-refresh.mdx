@@ -44,7 +44,7 @@ CUDA VM disk was 96% full (2.8 GB free, 60 GB total). The 20 GB model left no ro
 4. Updated systemd service (model path only), restarted
 5. Disabled egress
 
-**Egress gotcha:** CUDA VM's `egress-on` only sets the default route to bastion. Bastion's `egress-on` (ip_forward + iptables MASQUERADE) must also be run — and bastion's `netman` user doesn't have NOPASSWD sudo for iptables. Had to run manually. Also needed `-4` flag on wget to force IPv4 — IPv6 resolved but wasn't routable through the NAT.
+**Egress trap:** CUDA VM's `egress-on` only sets the default route to bastion. Bastion's `egress-on` (ip_forward + iptables MASQUERADE) must also be run — and bastion's `netman` user doesn't have NOPASSWD sudo for iptables. Had to run manually. Also needed `-4` flag on wget to force IPv4 — IPv6 resolved but wasn't routable through the NAT.
 
 ---
 

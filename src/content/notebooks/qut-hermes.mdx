@@ -1,0 +1,124 @@
+---
+title: "Qut: Hermes Agent Reference"
+date: "2026-03-29"
+tags: ["ai", "hermes", "discord", "automation"]
+---
+
+## Hermes Components
+
+| Component | Location |
+|-----------|----------|
+| Binary | `~/.local/bin/hermes` |
+| Config | `~/.hermes/config.yaml` |
+| Environment | `~/.hermes/.env` |
+| Soul/Persona | `~/.hermes/SOUL.md` |
+| State DB | `~/.hermes/state.db` |
+| Skills | `~/.hermes/skills/` (27+ directories) |
+| Memory | `~/.hermes/memories/MEMORY.md` |
+| Model | `qwen3.5-35b-a3b-ud-q4_k_xl` via `http://127.0.0.1:8081/v1` |
+
+```bash
+hermes cron list                  # Show all scheduled jobs
+hermes cron create --name "..." --schedule "..." --prompt "..."
+hermes cron run <job_name>        # Execute immediately
+```
+
+**Watch out:** `auto_cron` declarations in `config.yaml` are declarations-only. Only entries in `jobs.json` actually run. Always verify with `hermes cron list`.
+
+<br />
+
+## Cron Jobs (11)
+
+| Job | Schedule | What it does |
+|-----|----------|-------------|
+| health-check | `*/5 * * * *` | CUDA probe, Mode A/B transitions |
+| observe | `*/15 * * * *` | 8 collectors -> observations table |
+| sophia-curiosity | `*/30 * * * *` | 3-signal curiosity scoring + search |
+| extract-entities | `0 * * * *` | Qwen NER on new findings/topics |
+| ingest-conversations | `17 * * * *` | Discord messages -> knowledge graph |
+| detect-patterns | `0 */2 * * *` | Co-occurrence analysis |
+| daily-reflection | `0 9 * * *` | 24h observation summary |
+| research-questions | `0 12 * * *` | Research gap identification |
+| daily-digest | `0 20 * * *` | Undelivered findings -> Discord |
+| backup | `0 3 * * 0` | Hot SQLite backup + config archive |
+| weekly-habit-observer | `0 10 * * 0` | 7-day behavioral patterns |
+
+<br />
+
+## Hunt Lanes (6)
+
+| Lane | Type | Purpose |
+|------|------|---------|
+| tech-scout | hunt | Technology trends |
+| paper-radar | hunt | Academic/research paper discovery |
+| security-watch | hunt | Security news and vulnerabilities |
+| sophia_curiosity | hunt | 3-signal curiosity engine (novelty/mastery/coherence) |
+| digest | virtual | Daily digest delivery |
+| autoresearch | virtual | ML training results |
+
+Config at `~/.openclaw/config/lanes.yaml`. The `enabled` flag is the kill switch.
+
+<br />
+
+## Skills
+
+| Skill | Path | Purpose |
+|-------|------|---------|
+| autoresearch-loop | `mlops/training/autoresearch-loop` | Full training experiment orchestration |
+| sophia-curiosity | `research/sophia-curiosity` | 3-signal curiosity scoring with dynamic weighting |
+| searxng-web-search | `openclaw-imports/searxng-web-search` | SearXNG via search-router.sh |
+| ddgs-web-search | `openclaw-imports/ddgs-web-search` | DuckDuckGo fallback (free, no API key) |
+| export-to-obsidian | `productivity/export-to-obsidian` | Knowledge graph -> Obsidian vault |
+
+<br />
+
+## Discord Commands (12)
+
+| Command | Action |
+|---------|--------|
+| `!status` | Mode, queue depth, last health check, VRAM, uptime |
+| `!search <query>` | Quick SearXNG search (ephemeral) |
+| `!research <query>` | Research mode search (stores findings) |
+| `!run <lane>` | Execute hunt lane immediately |
+| `/hunt now` | Run all enabled hunt lanes |
+| `/digest now` | Generate and deliver digest |
+| `/approve <id>` | Approve proposed memory entry |
+| `/reject <id>` | Reject proposed memory entry |
+| `/quiet` | Zero notification budget (silence proactive messages) |
+| `/observe` | Run observe.sh, return summary |
+| `/lanes` | Lane config + DB stats |
+| `/backup` | Run backup.sh |
+
+In Mode A, commands needing CUDA auto-enqueue instead of executing.
+
+**Direct message delivery** (bypasses LLM, no agent loop):
+```bash
+openclaw message send \
+  --channel discord \
+  --target "channel:1480687290928988172" \
+  --message "text content here"
+```
+
+<br />
+
+## Launchd Agents (4 active)
+
+| Plist | Purpose | Policy |
+|-------|---------|--------|
+| `ai.hermes.gateway` | Hermes daemon | KeepAlive |
+| `com.user.openclaw-cuda-tunnel` | autossh to P40 | KeepAlive |
+| `com.openclaw.activitywatch` | ActivityWatch | KeepAlive |
+| `com.openclaw.ingest-interests` | Interest inbox watcher | RunAtLoad/WatchPaths |
+
+Everything else runs via Hermes cron.
+
+<br />
+
+## Mode A/B
+
+| | Mode A (CUDA offline) | Mode B (CUDA online) |
+|-|----------------------|---------------------|
+| Trigger | health-check fails | health-check succeeds |
+| LLM commands | Auto-enqueue | Execute immediately |
+| Observations | Collected + classified | Collected + classified + interpreted |
+| On transition A->B | -- | drain-queue.sh --all + interpret.sh |

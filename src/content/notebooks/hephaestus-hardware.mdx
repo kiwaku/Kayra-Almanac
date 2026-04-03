@@ -1,0 +1,144 @@
+---
+title: "Hephaestus: Hardware & Compute Reference"
+date: "2026-02-09"
+tags: ["hardware", "hephaestus", "cuda", "infiniband"]
+---
+
+## PCIe Slot Map (Throughput Mode)
+
+| Slot | Device | Link | Power |
+|------|--------|------|-------|
+| PCIe x16_1 (CPU1) | Tesla P40 | Gen3 x16 (126 Gb/s) | PCIe 8-pin |
+| PCIe x16_2 (CPU2) | ConnectX-3 HCA #1 | Gen3 x8 (63 Gb/s) | Slot-powered |
+| M.2 STRONG (CPU1) | ConnectX-3 HCA #2 via riser | Gen2 x4 (20 Gb/s) | PCIe 6-pin to riser |
+| PCIe x1 Slot A (PCH) | I350-T4 via riser | PCIe 2.0 x1 (4 Gb/s) | PCIe 6-pin to riser |
+| PCIe x1 Slot B (PCH) | Quadro P400 via riser | PCIe 2.0 x1 | PCIe 6-pin to riser |
+
+**M.2 note:** only the RIGHT M.2 (STRONG) reliably enumerates the HCA. Left M.2 is unreliable with this riser/card combo.
+
+<br />
+
+## VFIO Passthrough
+
+| Device | BDF | Passed to | Host retains? |
+|--------|-----|-----------|---------------|
+| Tesla P40 | varies | CUDA VM (100) | No |
+| ConnectX-3 HCA #2 | `0000:09:00.0` | IB-box VM | No |
+| Quadro P400 | -- | -- | Yes (console) |
+| ConnectX-3 HCA #1 | `0000:03:00.0` | -- | Yes (opensm) |
+| I350-T4 | -- | -- | Yes (lab NIC) |
+
+<br />
+
+## CUDA VM — Inference Server
+
+### llama-server (systemd)
+
+```bash
+sudo systemctl start llama-server
+sudo systemctl stop llama-server
+sudo systemctl restart llama-server
+sudo systemctl status llama-server
+journalctl -u llama-server -f     # Live logs
+```
+
+### GPU management
+
+```bash
+nvidia-smi                        # Status + VRAM usage
+nvidia-smi -q -d Memory           # Detailed memory info
+nvidia-smi dmon                   # Continuous monitoring
+```
+
+### API endpoints (from CUDA VM or tunneled)
+
+```bash
+curl -s localhost:8080/health                              # Health check
+curl -s localhost:8080/v1/models | python3 -m json.tool    # Model info
+```
+
+### Netplan (CUDA VM)
+
+Single authoritative file: `01-vmbr2.yaml`. Cloud-init network disabled via `/etc/cloud/cloud.cfg.d/99-disable-network-config.cfg`.
+
+Interface: `enp6s18` (vmbr2), static IP 192.168.100.100/24, no gateway.
+
+<br />
+
+## InfiniBand Fabric
+
+Dual ConnectX-3 Pro (MT27520, fw 2.38.5000) with QSFP+ DAC internal loop.
+
+### Port wiring
+
+**Port 1 to port 1, port 2 to port 2.** Cross-wiring causes "link detected: no."
+
+### Interface mapping
+
+```
+HCA #1 (native slot, 0000:03:00.0)
+  ens1   -> port 0
+  ens1d1 -> port 1
+
+HCA #2 (M.2 riser, 0000:09:00.0)
+  enp9s0   -> port 0
+  enp9s0d1 -> port 1
+```
+
+### Bandwidth reality
+
+- HCA #1 (Gen3 x8): full 40 Gb/s capable
+- HCA #2 (Gen2 x4): caps at ~11-12 Gb/s (PCIe bottleneck, not DAC)
+- Good for: stability testing, RDMA plumbing, burn-in, 10-20G class work
+- Not for: true 40GbE line-rate validation
+
+### IPoIB subnets
+
+- `10.0.40.0/24` (link 1)
+- `10.0.41.0/24` (link 2)
+
+### Driver state
+
+```bash
+# Check drivers
+lsmod | grep mlx4                 # mlx4_en (Ethernet), mlx4_ib, ib_core, ib_uverbs
+ibv_devinfo                       # IB device info, link layer, port state
+ibstat                            # Quick port status
+opensm                            # Subnet manager (runs on host, HCA #1)
+```
+
+<br />
+
+## P40 Thermal
+
+Aftermarket heatsink with ziptie+steel bar clamping. Bottom Mellanox fan flipped to feed air into GPU heatsink. Angled exhaust fan added.
+
+- **Peak under sustained load:** 62°C (32°C headroom to throttle at 94°C)
+- **24V blower:** powered via 12V->24V step-up converter on dedicated Molex. **Never connect blower directly to PSU.**
+
+<br />
+
+## Hardware Debugging
+
+### BIOS
+
+- Board: ZX-DU99D4 V1.12
+- PCIe mode: **Throughput Mode** (Slot Map A) — required for current layout
+- Memory: DDR4 ECC RDIMM, requires specific slot population order
+
+### Recovery procedures
+
+- **BIOS reflash:** CH341A programmer + SOIC-8 clip. Flash from known-good dump.
+- **I350-T4 NVM recovery:** eeupdate utility to reflash MAC addresses and NVM image after soft-brick. Required Linux boot environment with the I350 visible to the kernel.
+- **Memory init failure (DU99D4):** specific DIMM slot population order matters. RTFM for this board.
+
+### Useful diagnostics
+
+```bash
+lspci -t                          # PCIe topology tree
+lspci -vvv -s 03:00.0            # Detailed device info (link speed, width)
+dmesg | grep -i pci               # PCIe enumeration messages
+dmesg | grep -i iommu             # IOMMU grouping
+cat /proc/interrupts              # IRQ distribution
+sensors                           # Thermal sensors (if lm-sensors configured)
+```

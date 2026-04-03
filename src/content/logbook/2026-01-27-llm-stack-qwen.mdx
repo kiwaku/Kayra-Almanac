@@ -69,7 +69,7 @@ cd ~/llm/models/Qwen2.5-32B
 wget -c https://huggingface.co/bartowski/Qwen2.5-32B-Instruct-GGUF/resolve/main/Qwen2.5-32B-Instruct-IQ4_XS.gguf
 ```
 
-Gotchas:
+Pitfalls:
 - Mid-download failures leave large temp caches (e.g. `~/llm/models/Qwen2.5-32B/.cache`).
 - Disk full errors can show as weird wget message ("Cannot write ... (Success)").
 - Clean up old `.cache` or unused model dirs.
@@ -266,7 +266,7 @@ PY'
 
 <br />
 
-### Notes / gotchas
+### Notes / pitfalls
 
 - Running Qwen without correct chat template can cause "stupid" outputs. `--chat-template chatml` fixed instruction-following behavior.
 - Prefer local-only bindings; avoid exposing llama-server directly to apartment LAN.

@@ -112,7 +112,7 @@ Fix: deleted all backups (`rm /var/lib/vz/dump/vzdump-*`), freed 69GB. After reb
   --port 8080 -ngl 99 -c 32768 --host 0.0.0.0 --flash-attn on --jinja
 ```
 
-Gotcha: the `-fa` shorthand for flash attention was changed to `--flash-attn on` in newer llama.cpp builds. The old flag caused a startup failure.
+Heads up: the `-fa` shorthand for flash attention was changed to `--flash-attn on` in newer llama.cpp builds. The old flag caused a startup failure.
 
 **LiteLLM config** (`~/litellm_config.yaml`):
 ```yaml

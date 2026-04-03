@@ -95,7 +95,7 @@ The scoring model depends on a rich event log. Four pipelines feed `node_events`
 | Interest inbox | `ingest-interests.sh` | interest_document, interest_entity | interest_import |
 | OpenAI export | `ingest-openai-export.py` | openai_conversation, openai_entity | user_origin |
 
-**Event origin gotcha.** OpenAI events are tagged `origin=user_origin` (not `openai_import`) in the database. The `migrate-origin.sh` script consolidated origin tags during development. To identify OpenAI events, filter by `event_type` (`openai_conversation`, `openai_entity`), NOT by `origin`.
+**Event origin trap.** OpenAI events are tagged `origin=user_origin` (not `openai_import`) in the database. The `migrate-origin.sh` script consolidated origin tags during development. To identify OpenAI events, filter by `event_type` (`openai_conversation`, `openai_entity`), NOT by `origin`.
 
 ---
 

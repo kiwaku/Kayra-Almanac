@@ -68,7 +68,7 @@ Key skills:
 | backup | `0 3 * * 0` | Hot SQLite backup + config archive |
 | weekly-habit-observer | `0 10 * * 0` | 7-day behavioral patterns |
 
-**auto_cron gotcha.** `auto_cron` declarations in `config.yaml` are declarations-only — they are NOT auto-executed. Only entries in `jobs.json` actually run. This caused a bug: `daily_reflection` and `weekly_habit_observer` were declared in config.yaml but never created as real cron jobs. They silently never ran until manually created via `hermes cron create`.
+**auto_cron trap.** `auto_cron` declarations in `config.yaml` are declarations-only — they are NOT auto-executed. Only entries in `jobs.json` actually run. This caused a bug: `daily_reflection` and `weekly_habit_observer` were declared in config.yaml but never created as real cron jobs. They silently never ran until manually created via `hermes cron create`.
 
 ---
 

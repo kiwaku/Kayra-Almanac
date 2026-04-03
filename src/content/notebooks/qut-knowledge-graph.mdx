@@ -1,0 +1,97 @@
+---
+title: "Qut: Knowledge Graph & Databases Reference"
+date: "2026-03-29"
+tags: ["ai", "hephaestus", "sqlite", "knowledge-graph"]
+---
+
+## knowledge.sh (12+ commands)
+
+```bash
+knowledge.sh stats                # Node/edge counts, graph summary
+knowledge.sh query <sql>          # Raw SQL
+knowledge.sh add-node <type> <title> [metadata]
+knowledge.sh add-edge <src_id> <tgt_id> <type>
+knowledge.sh log-event <node_id> <event_type>
+knowledge.sh recent [count]       # Recently created nodes
+knowledge.sh search <query>       # FTS search (sorted by identity_score)
+knowledge.sh find-node <name>     # Lookup by name
+```
+
+All writes use `flock` serialization to prevent SQLITE_BUSY errors.
+
+<br />
+
+## Database Tables
+
+### queue.db
+
+| Table | Key columns |
+|-------|-------------|
+| `jobs` | id, lane, payload, status, created_at, completed_at |
+| `events` | id, type, data (JSON), timestamp |
+| `observations` | id, hash (SHA256), data (JSON), hint, processed, timestamp |
+| `findings` | id, lane, title, summary, url, relevance, dedupe_hash (UNIQUE), delivered |
+| `notification_budget` | window_start, count, max_count |
+| `state` | key, value |
+
+### knowledge.db
+
+| Table | Key columns |
+|-------|-------------|
+| `nodes` | id, type, title, metadata (JSON), identity_score, activity_score, obsidian_exported |
+| `edges` | id, source_id, target_id, type, strength |
+| `searches` | id, query, result_count, mode, timestamp |
+| `node_events` | id, node_id, event_type, origin, timestamp |
+| `edge_events` | id, edge_id, evidence_count |
+| `node_metadata` | node_id, session_count, substantive_mention_count, artifact_backed, origin_diversity |
+
+<br />
+
+## Inference Server
+
+```bash
+# llama-server flags (systemd unit on CUDA VM)
+llama-server \
+  -m .../Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf \
+  --port 8080 --host 0.0.0.0 \
+  -ngl 99 -c 98304 \
+  --jinja --flash-attn on \
+  --cache-type-k q4_0 --cache-type-v q4_0 \
+  -np 1 \
+  --chat-template-kwargs '{"enable_thinking": false}'
+```
+
+```bash
+# API endpoints
+GET  localhost:8080/health
+GET  localhost:8080/v1/models
+POST localhost:8080/v1/messages              # Anthropic-compatible (claude-local)
+POST localhost:8080/v1/chat/completions      # OpenAI-compatible (aider-local)
+POST localhost:8080/v1/responses             # OpenAI responses (OpenClaw/Hermes)
+```
+
+<br />
+
+## Quick Operations
+
+```bash
+# Check system health
+ssh cuda 'nvidia-smi'
+ssh cuda 'curl -s localhost:8080/health'
+queue-db.sh status
+
+# Restart inference
+ssh cuda 'sudo systemctl restart llama-server'
+
+# Manual triggers via Discord
+/observe
+/hunt now
+/digest now
+
+# Egress (CUDA VM or any lab VM)
+sudo egress-on       # Enable internet via bastion NAT
+sudo egress-off      # Back to isolated
+
+# SSH to CUDA VM (avoid tunnel conflicts)
+ssh -o ClearAllForwardings=yes cuda
+```

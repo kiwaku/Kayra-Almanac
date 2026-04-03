@@ -13,7 +13,7 @@ Automating Qut client setup with idempotent scripts for lab VMs and external mac
 
 ### Why automate
 
-Log 2 documented manual client setup — installing aider, Claude Code, adding aliases by hand on each machine. It worked, but it was error-prone and slow. Every new VM meant repeating the same steps, hitting the same gotchas (wrong shell rc file, missing NOPASSWD, orphaned alias fragments). Two scripts were created to handle everything: one for lab VMs on vmbr2, one for external machines connecting via SSH tunnel.
+Log 2 documented manual client setup — installing aider, Claude Code, adding aliases by hand on each machine. It worked, but it was error-prone and slow. Every new VM meant repeating the same steps, hitting the same pitfalls (wrong shell rc file, missing NOPASSWD, orphaned alias fragments). Two scripts were created to handle everything: one for lab VMs on vmbr2, one for external machines connecting via SSH tunnel.
 
 ---
 
@@ -75,7 +75,7 @@ Script ran successfully. Required:
 3. `ssh -fN cuda-tunnel` to start the tunnel
 4. `source ~/.bashrc` then `claude-local` / `aider-local`
 
-One gotcha: the first run was done as root instead of the daily user. SSH keys, aliases, and config all landed under root's home — useless. Re-ran as the normal user.
+One pitfall: the first run was done as root instead of the daily user. SSH keys, aliases, and config all landed under root's home — useless. Re-ran as the normal user.
 
 ---
 

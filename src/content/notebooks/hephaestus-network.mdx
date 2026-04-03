@@ -1,0 +1,128 @@
+---
+title: "Hephaestus: Network & Access Reference"
+date: "2026-02-09"
+tags: ["hardware", "hephaestus", "proxmox", "networking"]
+---
+
+## Network Topology
+
+Three bridges, strict isolation by default.
+
+| Bridge | Physical NIC | Purpose | Host IP |
+|--------|-------------|---------|---------|
+| **vmbr0** | nic0 | Apartment LAN / WAN uplink | 10.13.235.35/24 |
+| **vmbr1** | nic1 (I350 port1) | Physical lab switch (GS105E), L2 only | none |
+| **vmbr2** | none | Internal VM-to-VM, no internet | 192.168.100.1/24 |
+
+<br />
+
+## IP Plan (vmbr2: 192.168.100.0/24)
+
+| Role | IP | Bridge(s) |
+|------|----|-----------|
+| Proxmox host | 192.168.100.1 | vmbr2 |
+| Bastion (Debian 12) | 192.168.100.10 | vmbr0 + vmbr2 (dual-homed) |
+| CUDA VM (Ubuntu 22.04) | 192.168.100.100 | vmbr2 only |
+| Kali attacker | 192.168.100.20 | vmbr2 only |
+| Victim Ubuntu | 192.168.100.30 | vmbr2 only |
+| Victim Debian | 192.168.100.31 | vmbr2 only |
+| Victim Alpine | 192.168.100.32 | vmbr2 only |
+
+Bastion is the ONLY dual-homed machine. Everything else on vmbr2 has no default route by default.
+
+<br />
+
+## VM Inventory
+
+| VMID | Name | OS | Role | Notes |
+|------|------|----|------|-------|
+| 100 | cuda | Ubuntu 22.04 | Inference server (P40 passthrough) | vmbr2 only, llama-server + Open WebUI |
+| 150 | bastion | Debian 12 | SSH jump host, NAT gateway | vmbr0 + vmbr2, text-only, fail2ban |
+
+<br />
+
+## Proxmox Management
+
+```bash
+# VM lifecycle
+qm start 100                     # Start CUDA VM
+qm stop 100                      # Stop CUDA VM
+qm status 100                    # Check status
+qm monitor 100                   # Console monitor
+
+# Network reload (ifupdown2)
+ifreload -a                       # Safe reload, no disconnect
+# OR
+ifdown vmbr2 && ifup vmbr2        # Single bridge reload
+
+# Host interfaces
+cat /etc/network/interfaces       # Bridge definitions
+```
+
+<br />
+
+## Egress Control
+
+Default state: **no ambient internet** on vmbr2 VMs. Egress is explicitly toggled.
+
+### Enable egress (two-step)
+
+```bash
+# Step 1: On bastion — enable NAT
+sudo egress-on
+# Enables ip_forward, iptables MASQUERADE for 192.168.100.0/24 via ens18
+
+# Step 2: On CUDA VM — add route + DNS
+sudo egress-on
+# Adds default route via 192.168.100.10, sets DNS to 1.1.1.1 / 8.8.8.8
+```
+
+### Disable egress (reverse order)
+
+```bash
+# Step 1: On CUDA VM
+sudo egress-off
+# Removes default route, restores original DNS
+
+# Step 2: On bastion
+sudo egress-off
+# Drops iptables rules, disables ip_forward
+```
+
+### Remote one-liners (from bastion)
+
+```bash
+# Enable
+sudo egress-on && ssh -t kudakuda@192.168.100.100 'sudo /usr/local/sbin/egress-on'
+
+# Disable
+ssh -t kudakuda@192.168.100.100 'sudo /usr/local/sbin/egress-off' && sudo egress-off
+```
+
+### Verification (on CUDA VM)
+
+```bash
+ip route | head                   # Should show/not show default route
+ping -c 1 1.1.1.1                # Test connectivity
+getent hosts huggingface.co       # Test DNS
+```
+
+<br />
+
+## SSH Access
+
+### From Mac (external)
+
+```bash
+ssh bastion                       # Jump host
+ssh cuda                          # CUDA VM (via ProxyJump through bastion)
+ssh -fN cuda                      # Background tunnel for llama-server access
+```
+
+SSH config uses `ProxyJump bastion` for all vmbr2 hosts. Mac cannot reach 192.168.100.0/24 directly — different subnet, no route.
+
+### Key pitfalls
+
+- **ClearAllForwardings:** when SSHing to CUDA for commands (not tunneling), use `-o ClearAllForwardings=yes` to avoid port conflicts with active autossh tunnels
+- **ControlMaster conflict:** long-lived tunnels (autossh) must use `-o ControlPath=none -o ControlMaster=no` to avoid stale mux socket death
+- **AUTOSSH_GATETIME=0:** required for launchd-started autossh (network may not be ready at boot)

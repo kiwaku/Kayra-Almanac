@@ -1,0 +1,344 @@
+---
+title: "Qut: Hermes & Scripts Reference"
+date: "2026-03-29"
+tags: ["ai", "hephaestus", "hermes", "openclaw", "discord", "sqlite"]
+---
+
+## Hermes Agent
+
+| Component | Location |
+|-----------|----------|
+| Binary | `~/.local/bin/hermes` |
+| Config | `~/.hermes/config.yaml` |
+| Environment | `~/.hermes/.env` |
+| Soul/Persona | `~/.hermes/SOUL.md` |
+| State DB | `~/.hermes/state.db` |
+| Skills | `~/.hermes/skills/` (27+ directories) |
+| Memory | `~/.hermes/memories/MEMORY.md` |
+| Model | `qwen3.5-35b-a3b-ud-q4_k_xl` via `http://127.0.0.1:8081/v1` |
+
+```bash
+hermes cron list                  # Show all scheduled jobs
+hermes cron create --name "..." --schedule "..." --prompt "..."
+hermes cron run <job_name>        # Execute immediately
+```
+
+**Gotcha:** `auto_cron` declarations in `config.yaml` are declarations-only. Only entries in `jobs.json` actually run. Always verify with `hermes cron list`.
+
+<br />
+
+## Cron Jobs (11)
+
+| Job | Schedule | What it does |
+|-----|----------|-------------|
+| health-check | `*/5 * * * *` | CUDA probe, Mode A/B transitions |
+| observe | `*/15 * * * *` | 8 collectors -> observations table |
+| sophia-curiosity | `*/30 * * * *` | 3-signal curiosity scoring + search |
+| extract-entities | `0 * * * *` | Qwen NER on new findings/topics |
+| ingest-conversations | `17 * * * *` | Discord messages -> knowledge graph |
+| detect-patterns | `0 */2 * * *` | Co-occurrence analysis |
+| daily-reflection | `0 9 * * *` | 24h observation summary |
+| research-questions | `0 12 * * *` | Research gap identification |
+| daily-digest | `0 20 * * *` | Undelivered findings -> Discord |
+| backup | `0 3 * * 0` | Hot SQLite backup + config archive |
+| weekly-habit-observer | `0 10 * * 0` | 7-day behavioral patterns |
+
+<br />
+
+## Hunt Lanes (6)
+
+| Lane | Type | Purpose |
+|------|------|---------|
+| tech-scout | hunt | Technology trends |
+| paper-radar | hunt | Academic/research paper discovery |
+| security-watch | hunt | Security news and vulnerabilities |
+| sophia_curiosity | hunt | 3-signal curiosity engine (novelty/mastery/coherence) |
+| digest | virtual | Daily digest delivery |
+| autoresearch | virtual | ML training results |
+
+Config at `~/.openclaw/config/lanes.yaml`. The `enabled` flag is the kill switch.
+
+<br />
+
+## Hermes Skills
+
+| Skill | Path | Purpose |
+|-------|------|---------|
+| autoresearch-loop | `mlops/training/autoresearch-loop` | Full training experiment orchestration |
+| sophia-curiosity | `research/sophia-curiosity` | 3-signal curiosity scoring with dynamic weighting |
+| searxng-web-search | `openclaw-imports/searxng-web-search` | SearXNG via search-router.sh |
+| ddgs-web-search | `openclaw-imports/ddgs-web-search` | DuckDuckGo fallback (free, no API key) |
+| export-to-obsidian | `productivity/export-to-obsidian` | Knowledge graph -> Obsidian vault |
+
+<br />
+
+## Discord Commands (12)
+
+| Command | Action |
+|---------|--------|
+| `!status` | Mode, queue depth, last health check, VRAM, uptime |
+| `!search <query>` | Quick SearXNG search (ephemeral) |
+| `!research <query>` | Research mode search (stores findings) |
+| `!run <lane>` | Execute hunt lane immediately |
+| `/hunt now` | Run all enabled hunt lanes |
+| `/digest now` | Generate and deliver digest |
+| `/approve <id>` | Approve proposed memory entry |
+| `/reject <id>` | Reject proposed memory entry |
+| `/quiet` | Zero notification budget (silence proactive messages) |
+| `/observe` | Run observe.sh, return summary |
+| `/lanes` | Lane config + DB stats |
+| `/backup` | Run backup.sh |
+
+In Mode A, commands needing CUDA auto-enqueue instead of executing.
+
+**Direct message delivery** (bypasses LLM, no agent loop):
+```bash
+openclaw message send \
+  --channel discord \
+  --target "channel:1480687290928988172" \
+  --message "text content here"
+```
+
+<br />
+
+## Infrastructure Scripts
+
+All at `~/.openclaw/scripts/`.
+
+### queue-db.sh (12 commands)
+
+```bash
+queue-db.sh init                  # Create all tables
+queue-db.sh enqueue <lane> <payload>
+queue-db.sh dequeue               # Get next pending job
+queue-db.sh complete <job_id>
+queue-db.sh fail <job_id>
+queue-db.sh status                # Queue stats and current mode
+queue-db.sh log-event <type> <data>
+queue-db.sh budget-check          # Notification budget remaining
+queue-db.sh budget-inc            # Increment budget counter
+queue-db.sh state-get <key>
+queue-db.sh state-set <key> <value>
+queue-db.sh drain-ready           # Pending jobs (Mode B only)
+```
+
+### knowledge.sh (12+ commands)
+
+```bash
+knowledge.sh stats                # Node/edge counts, graph summary
+knowledge.sh query <sql>          # Raw SQL
+knowledge.sh add-node <type> <title> [metadata]
+knowledge.sh add-edge <src_id> <tgt_id> <type>
+knowledge.sh log-event <node_id> <event_type>
+knowledge.sh recent [count]       # Recently created nodes
+knowledge.sh search <query>       # FTS search (sorted by identity_score)
+knowledge.sh find-node <name>     # Lookup by name
+```
+
+All writes use `flock` serialization to prevent SQLITE_BUSY errors.
+
+### Observation pipeline
+
+```bash
+observe.sh                        # Orchestrator: runs collectors, merges, classifies
+  app.sh                          # Active app + window title (osascript)
+  browser.sh                      # URL + page title (ActivityWatch primary, osascript fallback)
+  command.sh                      # Terminal commands + intent signals
+  repo.sh                         # Git status of watched repos
+  files.sh                        # Recently modified files
+  runtime.sh                      # CUDA status, queue depth, running jobs
+  system.sh                       # Memory, CPU, disk
+```
+
+Intent signals from command.sh: `coding`, `debugging`, `deploying`, `researching`, `claude_session`. Detects loops (same command 3+ times).
+
+### Classification rules (in observe.sh)
+
+```
+ESCALATE  if  mem > 90%  or  (CUDA down AND queue > 2)  or  loop detected
+DIGEST    if  mode changed  or  git branch changed  or  burst >5 events
+          or  mem > 85%  or  intent = debugging/coding  or  claude session
+STORE     if  dirty files > 5  or  autoresearch running  or  cmd count > 3
+IGNORE    everything else
+```
+
+### Interpretation and actions
+
+```bash
+interpret.sh                      # 30-min (Mode B), dispatches:
+```
+
+| Action | Result |
+|--------|--------|
+| `ignore` | Marked processed |
+| `store_only` | Logged to events table |
+| `digest_candidate` | Inserted to findings table |
+| `proactive_message` | Discord message (budget-gated, downgrades to digest if exhausted) |
+| `propose_memory` | Suggest MEMORY.md entry |
+| `queue_autoresearch` | Enqueue research job |
+| `auto_search` | Dispatch search-router.sh |
+
+### Search and research
+
+```bash
+search-router.sh "<query>" --mode quick     # Ephemeral SearXNG search
+search-router.sh "<query>" --mode research  # Stores findings, ingests to KG
+run-hunt.sh <lane>                          # Execute specific hunt lane
+hunt-ingest.sh                              # Dual JSON parser -> findings table
+generate-digest.sh                          # Group by lane, star ratings, format
+```
+
+### Knowledge graph operations
+
+```bash
+extract-entities.sh               # Qwen NER -> nodes + mentions edges (hourly)
+detect-patterns.sh                # Co-occurrence analysis
+generate-hypotheses.sh            # Graph structure -> testable hypotheses
+generate-research-questions.sh    # Gap identification
+export-to-obsidian.sh             # -> ~/Obsidian/Hephaestus/
+  --all                           # Full re-export
+  --type entity|finding|topic     # Filter by node type
+  --since YYYY-MM-DD              # Only after date
+```
+
+### Scoring and ingestion
+
+```bash
+backfill-confidence.sh            # Two-pass: identity_score + activity_score
+ingest-interests.sh               # Watch ~/interests/inbox/ (PDF/TXT/MD/HTML/JSON/CSV)
+ingest-openai-export.py           # Import ChatGPT history from conversations.zip
+ingest-conversations.sh           # Discord messages -> KG events
+```
+
+### Autoresearch
+
+```bash
+autoresearch-train.sh             # Atomic cycle:
+                                  #   systemctl stop llama-server
+                                  #   train (~5-7 min)
+                                  #   systemctl start llama-server
+                                  #   ingest results to knowledge.db + queue.db
+```
+
+### Health and lifecycle
+
+```bash
+health-check.sh                   # Probe localhost:8081/health (5-min)
+                                  #   Success: mode=B, triggers drain + interpret
+                                  #   Failure: mode=A, logs event
+drain-queue.sh [--all]            # Process pending jobs lane-by-lane
+backup.sh                         # Hot SQLite .backup, config tarball, rotate to 10
+```
+
+### Dedup
+
+```bash
+dedup-entities.sh --exact-only    # Phase 1: deterministic normalization
+dedup-phase2.py                   # Phase 2: token blocking + RapidFuzz + Qwen
+  --dry-run                       # Preview only
+  --fuzz-threshold 90             # RapidFuzz score cutoff
+  --batch-size 10                 # Pairs per LLM prompt
+  --limit N                       # Cap entity count
+dedup-phase2-runner.sh            # Auto-restart wrapper (CUDA lock, caffeinate, 50 retries)
+```
+
+<br />
+
+## Launchd Agents (4 active)
+
+| Plist | Purpose | Policy |
+|-------|---------|--------|
+| `ai.hermes.gateway` | Hermes daemon | KeepAlive |
+| `com.user.openclaw-cuda-tunnel` | autossh to P40 | KeepAlive |
+| `com.openclaw.activitywatch` | ActivityWatch | KeepAlive |
+| `com.openclaw.ingest-interests` | Interest inbox watcher | RunAtLoad/WatchPaths |
+
+Everything else runs via Hermes cron.
+
+<br />
+
+## Database Tables
+
+### queue.db
+
+| Table | Key columns |
+|-------|-------------|
+| `jobs` | id, lane, payload, status, created_at, completed_at |
+| `events` | id, type, data (JSON), timestamp |
+| `observations` | id, hash (SHA256), data (JSON), hint, processed, timestamp |
+| `findings` | id, lane, title, summary, url, relevance, dedupe_hash (UNIQUE), delivered |
+| `notification_budget` | window_start, count, max_count |
+| `state` | key, value |
+
+### knowledge.db
+
+| Table | Key columns |
+|-------|-------------|
+| `nodes` | id, type, title, metadata (JSON), identity_score, activity_score, obsidian_exported |
+| `edges` | id, source_id, target_id, type, strength |
+| `searches` | id, query, result_count, mode, timestamp |
+| `node_events` | id, node_id, event_type, origin, timestamp |
+| `edge_events` | id, edge_id, evidence_count |
+| `node_metadata` | node_id, session_count, substantive_mention_count, artifact_backed, origin_diversity |
+
+<br />
+
+## Inference Server
+
+```bash
+# llama-server flags (systemd unit on CUDA VM)
+llama-server \
+  -m .../Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf \
+  --port 8080 --host 0.0.0.0 \
+  -ngl 99 -c 98304 \
+  --jinja --flash-attn on \
+  --cache-type-k q4_0 --cache-type-v q4_0 \
+  -np 1 \
+  --chat-template-kwargs '{"enable_thinking": false}'
+```
+
+```bash
+# API endpoints
+GET  localhost:8080/health
+GET  localhost:8080/v1/models
+POST localhost:8080/v1/messages              # Anthropic-compatible (claude-local)
+POST localhost:8080/v1/chat/completions      # OpenAI-compatible (aider-local)
+POST localhost:8080/v1/responses             # OpenAI responses (OpenClaw/Hermes)
+```
+
+<br />
+
+## Mode A/B
+
+| | Mode A (CUDA offline) | Mode B (CUDA online) |
+|-|----------------------|---------------------|
+| Trigger | health-check fails | health-check succeeds |
+| LLM commands | Auto-enqueue | Execute immediately |
+| Observations | Collected + classified | Collected + classified + interpreted |
+| On transition A->B | -- | drain-queue.sh --all + interpret.sh |
+
+<br />
+
+## Quick Operations
+
+```bash
+# Check system health
+ssh cuda 'nvidia-smi'
+ssh cuda 'curl -s localhost:8080/health'
+queue-db.sh status
+
+# Restart inference
+ssh cuda 'sudo systemctl restart llama-server'
+
+# Manual triggers via Discord
+/observe
+/hunt now
+/digest now
+
+# Egress (CUDA VM or any lab VM)
+sudo egress-on       # Enable internet via bastion NAT
+sudo egress-off      # Back to isolated
+
+# SSH to CUDA VM (avoid tunnel conflicts)
+ssh -o ClearAllForwardings=yes cuda
+```

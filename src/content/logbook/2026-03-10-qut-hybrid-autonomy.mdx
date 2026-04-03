@@ -1,0 +1,395 @@
+---
+title: "Qut: Hybrid Autonomy (Phases 1-12)"
+date: "2026-03-10"
+tags: ["ai", "hephaestus", "openclaw", "sqlite", "automation", "discord"]
+project: qut
+images: []
+anomaly: false
+---
+
+Transform the OpenClaw Discord bot from a reactive chat assistant into a fully autonomous observe-interpret-research-report pipeline. 12 infrastructure phases covering runtime state, observation, classification, research execution, and operational tooling. Dates: 2026-03-10 through 2026-03-15.
+
+<br />
+
+### Background
+
+After the OpenClaw setup, the Discord bot could talk. It ran on a P40 GPU inside the CUDA VM (192.168.100.100), serving Qwen3.5-35B-A3B through llama-server, tunneled to the Mac over autossh. OpenClaw handled the Discord gateway — messages came in, went to the LLM, replies went back out. A functional chat bot.
+
+But "functional chat bot" is not what this project was about. The goal was a system that works while I'm not paying attention: monitoring what I'm doing, searching for things I might find interesting, tracking research across multiple lanes, and delivering a daily summary of what it found. The bot needed to become the visible tip of a much larger autonomous infrastructure.
+
+The gap between "responds to messages" and "operates autonomously" turned out to be roughly 30 shell scripts, 3 SQLite databases, 7 launchd agents, and a failed experiment with local LLMs.
+
+**Design constraints:**
+
+1. **8GB M1 Mac** — the orchestration machine had no GPU and no RAM to spare. Everything heavyweight had to run on the CUDA VM, which meant every LLM call was a network round-trip through an SSH tunnel.
+2. **CUDA VM is shared** — the P40 also runs autoresearch training. The system had to handle the GPU disappearing mid-operation and coming back minutes later.
+3. **No cloud dependencies** — all search, inference, and storage stays local. SearXNG for web search, Qwen for reasoning, SQLite for state.
+
+These constraints pushed toward a two-mode architecture early on: Mode A (CUDA offline, queue everything) and Mode B (CUDA online, process everything).
+
+---
+
+<br />
+
+### Phase 1 — Runtime Layer (2026-03-10)
+
+Phase 1 built the state management substrate that everything else sits on top of.
+
+**queue.db** — SQLite in WAL mode at `~/.openclaw/runtime/queue.db`. Five tables:
+
+| Table | Purpose | Key columns |
+|-------|---------|-------------|
+| `jobs` | Pending/active/completed work items | id, lane, payload, status, created_at, completed_at |
+| `events` | Immutable event log for debugging | id, type, data (JSON), timestamp |
+| `notification_budget` | Rate-limit Discord messages per window | window_start, count, max_count |
+| `state` | Key-value store for system flags | key, value |
+| `findings` | Research results awaiting digest delivery | Added in Phase 4 |
+
+The `jobs` table uses a simple state machine: `pending` -> `running` -> `completed` or `failed`. Lane tagging lets us track which hunt lane (tech-scout, paper-radar, security-watch) produced which work.
+
+**queue-db.sh** — a 12-command CLI wrapper around the database. Every script in the system interacts with queue.db through this interface — no raw SQL elsewhere. Commands: `init`, `enqueue`, `dequeue`, `complete`, `fail`, `status`, `log-event`, `budget-check`, `budget-inc`, `state-get`, `state-set`, `drain-ready`.
+
+The `drain-ready` command is worth noting: it returns pending jobs ordered by priority and age, but only if the system is in Mode B. This single query encodes the fundamental rule that no work should execute when the GPU is offline.
+
+**health-check.sh** — probes the CUDA VM via curl to `localhost:8081/health`. On success, sets `mode=B`; on failure, sets `mode=A`. On A->B recovery, triggers `drain-queue.sh --all` and `interpret.sh` in background. On B->A failure, logs the event, no further action. Deployed as a launchd plist at 5-minute intervals. This is the system's heartbeat.
+
+**run-hunt.sh modifications** — the existing hunt runner gained pre-flight CUDA check (if Mode A, enqueue instead of executing), post-flight event logging, and budget check (rate-limits Discord messages per window).
+
+---
+
+<br />
+
+### Phase 2 — Local Sidecar (SKIPPED)
+
+The interpretation pipeline needs to classify observations: is this interesting enough to send to the CUDA LLM, or can we drop it locally? A tiny local model — Qwen 0.6B quantized to 4-bit — should be able to do binary classification in a few hundred milliseconds.
+
+**mlx-lm + Qwen3-0.6B-4bit:** RAM was fine (29% free after load, only 140 swap-out pages). But cold start was **34.5 seconds** — expected 2-3 seconds. Inference was 1.2 seconds, fast enough, but irrelevant when the 34.5s cold load kills the entire concept. mlx-lm's cold start is dominated by model weight loading and Metal shader compilation.
+
+**Ollama (qwen2.5:0.5b and 1.5b):** Classification quality was garbage — commas, partial tokens, incomplete JSON. Neither model could reliably produce ESCALATE/DIGEST/STORE/IGNORE labels. Cold load: 14-25 seconds. Memory: +550MB swap pressure on 8GB M1.
+
+Decision: **skip Phase 2 entirely**. Phase 1 heuristic rules (implemented later in Phase 7b) turned out to handle classification better than any sub-1B model could.
+
+**Lesson:** On memory-constrained hardware, the gap between "model fits in RAM" and "model is practical to run" is enormous. Cold start dominates everything in a spawn-per-call pattern, and resident daemons defeat the purpose of staying lightweight.
+
+---
+
+<br />
+
+### Phase 3 — Context Trim (2026-03-10)
+
+OpenClaw auto-loads workspace files into the LLM context at the start of every conversation. With 18,370 bytes of workspace content, Qwen was burning ~4,500 tokens before the user even said anything.
+
+| File | Before | After | Method |
+|------|--------|-------|--------|
+| AGENTS.md | 12,058 bytes | 1,710 bytes | Stripped to core rules. Verbose content moved to reference file |
+| TOOLS.md | 4,112 bytes | 1,840 bytes | Converted from prose descriptions to lookup table |
+| HEARTBEAT.md | 730 bytes | 166 bytes | Reduced to 3 lines pointing at queue-db.sh status |
+| BOOTSTRAP.md | 1,470 bytes | 0 bytes | Deleted — redundant with AGENTS.md |
+| **Total** | **18,370 bytes** | **3,716 bytes** | **-80%** |
+
+The principle: workspace files should be index pages, not manuals.
+
+---
+
+<br />
+
+### Phase 4 — Lane Quality (2026-03-11)
+
+Hunt lanes (tech-scout, paper-radar, security-watch) were producing research output arriving as unstructured text blobs. No way to track which findings had been delivered, detect duplicates, or rank by relevance.
+
+**findings table** added to queue.db with a `dedupe_hash TEXT UNIQUE` column — SHA256 of normalized title+url. The same finding from two different hunt runs is silently rejected on insert. No application-level dedup logic needed.
+
+**hunt-ingest.sh** uses a dual parsing strategy: first try to parse the entire LLM output as a JSON array (works ~70% of the time), then fall back to line-by-line scanning for `{` and attempting to parse individually (catches the rest when Qwen wraps output in markdown fences or preamble). Combined: zero parse failures across all test runs.
+
+**generate-digest.sh** queries all undelivered findings, groups them by lane, applies star ratings (the `relevance` column), and prepends a CUDA status header.
+
+All three hunt lane prompts were rewritten to request JSON output (`{"title": "...", "summary": "...", "url": "...", "relevance": 3}`), making the parser's job dramatically easier.
+
+---
+
+<br />
+
+### Phase 5 — Browser Enrichment (DEFERRED)
+
+Planned PinchTab browser data integration. Deferred — the ActivityWatch integration in Phase 6 covered the browser observation need adequately.
+
+---
+
+<br />
+
+### Phase 6 — Observation V1 (2026-03-12)
+
+This phase built the eyes of the system. Every 15 minutes, the Mac takes a snapshot of what's happening and stores it.
+
+**observe.sh** runs 7 modular collectors and merges their output into a single JSON bundle:
+
+| Collector | What it captures |
+|-----------|-----------------|
+| `app.sh` | Active application + window title (via osascript) |
+| `browser.sh` | Current browser URL and page title |
+| `command.sh` | Recent terminal commands with intent classification |
+| `repo.sh` | Git status of watched repositories |
+| `files.sh` | Recently modified files in project directories |
+| `runtime.sh` | CUDA VM status, queue depth, running jobs |
+| `system.sh` | Memory pressure, CPU load, disk usage |
+
+Each collector outputs a JSON fragment. `observe.sh` merges them, computes a SHA256 hash, and inserts into the `observations` table. If the hash matches the previous observation, the insert is skipped. Auto-prune removes observations older than 7 days.
+
+**Platform quirks:**
+
+**app.sh under launchd returns "idle"** — `osascript` for frontmost app works from a terminal but returns nothing under launchd (no access to the window server). This motivated ActivityWatch.
+
+**No `timeout` command on macOS** — solved with a background+wait watchdog pattern for collectors that might hang.
+
+**browser.sh and ActivityWatch** — ActivityWatch (v0.13.2, Rosetta x86_64 on M1) runs as a login item, exposes REST API at `localhost:5600`. `browser.sh` uses it as primary source with osascript fallback. Captures full window titles including YouTube video names, active tab URLs, and application context. ~51MB RAM total.
+
+**command.sh and intent signals** — reads from `~/.terminal_commands.log` (populated by a `preexec` shell hook). Extracts intent signals: `coding` (git commit, vim, make, cargo, npm), `debugging` (gdb, strace, tcpdump), `deploying` (docker, kubectl, systemctl), `researching` (curl, wget, man, search-router.sh), `claude_session` (claude CLI detected). Also detects **loops** (same command repeated 3+ times), signaling frustration or a stuck debugging cycle.
+
+---
+
+<br />
+
+### Phase 7 — Interpretation (2026-03-13)
+
+`interpret.sh` is the brain that decides what to do with observations. Runs every 30 minutes (Mode B only), processes all uninterpreted observations since the last run.
+
+Flow: check mode (exit if A) -> query unprocessed observations -> auto-mark IGNORE-hinted ones -> build prompt with interesting observations + context -> send to CUDA via HTTP POST -> parse JSON response -> dispatch actions.
+
+**Action types:**
+
+| Action | What happens |
+|--------|-------------|
+| `ignore` | Observation marked processed, no further action |
+| `store_only` | Written to events table for later pattern analysis |
+| `digest_candidate` | Inserted into findings table for next digest delivery |
+| `proactive_message` | Send a Discord message immediately (budget-gated) |
+| `propose_memory` | Suggest a new entry for MEMORY.md |
+| `queue_autoresearch` | Enqueue a research job on the topic |
+
+**Budget gating** prevents the system from spamming Discord. If the budget is exhausted, `proactive_message` is silently downgraded to `digest_candidate`. Critical for trust — an autonomous system that sends too many messages trains its operator to ignore it.
+
+---
+
+<br />
+
+### Phase 7b — Rule-based Classifier (2026-03-13)
+
+After the Phase 2 sidecar failure, classification needed a different approach. The solution was embarrassingly simple: deterministic rules.
+
+```
+ESCALATE  if  mem > 90%
+          or  (CUDA down AND queue depth > 2)
+          or  loop detected in terminal commands
+
+DIGEST    if  mode changed (A<->B)
+          or  git branch changed in watched repo
+          or  burst of activity (>5 events in window)
+          or  mem > 85%
+          or  intent = debugging
+          or  intent = coding
+          or  claude session active
+
+STORE     if  dirty files > 5
+          or  autoresearch running
+          or  terminal command count > 3
+          or  same browser domain as previous observation
+
+IGNORE    everything else
+```
+
+Performance: 0 RAM (it's a bash case statement), sub-millisecond latency, surprisingly good accuracy. The rules encode exactly the heuristics that the local LLM was supposed to learn, but stated explicitly.
+
+The classifier runs inside `observe.sh` at observation time and writes the hint to the observations table. `interpret.sh` then auto-marks IGNORE observations without sending them to the CUDA LLM, saving both network round-trips and context window space.
+
+**Key insight:** for a classification problem with 4 categories and well-understood features, a rule engine is not a compromise — it's the correct solution.
+
+---
+
+<br />
+
+### Phase 8 — Drain Queue (2026-03-14)
+
+`drain-queue.sh` handles Mode A to Mode B transitions — when the CUDA comes back online, all queued work needs to execute. Queries all `pending` jobs, maps each to its lane, executes sequentially within each lane (rate-limited), handles retry logic on failure.
+
+`health-check.sh` triggers drain on A->B transition, both `drain-queue.sh --all` and `interpret.sh` run in background so the health check doesn't block its 5-minute cycle.
+
+---
+
+<br />
+
+### Phase 9 — Command Dispatch (2026-03-14)
+
+Twelve Discord commands via `command-dispatch.sh`:
+
+| Command | Action |
+|---------|--------|
+| `!status` | Mode, queue depth, last health check, VRAM, uptime |
+| `!search <query>` | Quick mode search via search-router.sh |
+| `!research <query>` | Research mode search (stores findings) |
+| `!run <lane>` | Execute a hunt lane immediately |
+| `/hunt now` | Run all enabled hunt lanes |
+| `/digest now` | Generate and deliver digest immediately |
+| `/approve <id>` | Approve a proposed memory entry |
+| `/reject <id>` | Reject a proposed memory entry |
+| `/quiet` | Zero the notification budget (silence proactive messages) |
+| `/observe` | Run observe.sh and return summary |
+| `/lanes` | Show lane config + DB stats |
+| `/backup` | Run backup.sh immediately |
+
+In Mode A, commands that require CUDA auto-enqueue instead of executing.
+
+---
+
+<br />
+
+### Phase 10 — Results Tracking (2026-03-14)
+
+**results.tsv** — tab-separated file tracking every research and autoresearch run. Auto-appended after each execution. Deliberately a flat file for easy `grep`, `sort`, and manual inspection.
+
+**VRAM guard** — before executing any LLM-dependent command, queries CUDA VM for current VRAM usage. If a training run is occupying the GPU, the job gets queued with a `vram_conflict` tag.
+
+Autoresearch findings are automatically ingested into the findings table tagged to a virtual `autoresearch` lane, appearing in daily digests alongside hunt results.
+
+---
+
+<br />
+
+### Phase 11 — Lane Configuration (2026-03-15)
+
+Centralized lane configuration at `~/.openclaw/config/lanes.yaml`:
+
+```yaml
+lanes:
+  tech-scout:
+    display_name: "Tech Scout"
+    type: hunt
+    enabled: true
+    schedule: "daily"
+  paper-radar:
+    display_name: "Paper Radar"
+    type: hunt
+    enabled: true
+    schedule: "daily"
+  security-watch:
+    display_name: "Security Watch"
+    type: hunt
+    enabled: true
+    schedule: "daily"
+  digest:
+    display_name: "Daily Digest"
+    type: virtual
+    enabled: true
+  autoresearch:
+    display_name: "Autoresearch"
+    type: virtual
+    enabled: true
+  system:
+    display_name: "System"
+    type: system
+    enabled: true
+```
+
+The `/lanes` command reads this YAML and enriches it with live stats from queue.db. `run-hunt.sh` checks the `enabled` flag before executing — the kill switch.
+
+---
+
+<br />
+
+### Phase 12 — Backup (2026-03-15)
+
+`backup.sh` protects against data loss: hot SQLite copy via `.backup` command (not file copy, for WAL consistency), config archive (tarball of `~/.openclaw/config/`, `~/.openclaw/workspace/`, prompt files, memory files), gzip compression (~28KB archives), and rotation (prunes to last 10 backups). Weekly launchd job (Sunday 03:00) and available on-demand via `/backup`.
+
+---
+
+<br />
+
+### Integration Testing
+
+10 scripted acceptance tests, all passing: queue-db init, enqueue/dequeue round-trip, health-check Mode A/B detection, run-hunt.sh queueing in Mode A, hunt-ingest.sh JSON parsing (both array and line-by-line), dedup hash rejection, generate-digest.sh lane grouping, backup archive validation.
+
+**Live-fire test (2026-03-15):** triggered `/hunt now` via Discord, tech-scout lane produced JSON output, hunt-ingest.sh parsed 4 findings, re-ran same hunt to verify dedup (0 new findings, 4 hash collisions), `/digest now` generated formatted digest, delivered to Discord.
+
+**Critical bug found: agent loop on digest delivery.** When using `openclaw agent --deliver`, Qwen entered an infinite retry loop on the `message` tool — 141 calls over 10 minutes. The tool expected `{"message": "..."}` but Qwen passed `{"text": "..."}`. Fix: stopped using the agent for delivery entirely, switched to `openclaw message send`.
+
+---
+
+<br />
+
+### Final State
+
+```
+Orchestration Mac (M1 8GB)
+  ~/.openclaw/
+    runtime/
+      queue.db          - 6 tables
+    config/
+      lanes.yaml        - 6 lanes (3 hunt, 2 virtual, 1 system)
+    scripts/
+      queue-db.sh       - 12-command DB CLI
+      health-check.sh   - Mode A/B probe, 5-min launchd
+      observe.sh        - 7 collectors, 15-min launchd
+      interpret.sh      - CUDA dispatch, 30-min launchd (Mode B)
+      drain-queue.sh    - Lane-mapped job runner
+      command-dispatch.sh - 12 Discord commands
+      run-hunt.sh       - Hunt executor with pre-flight/queue/budget
+      hunt-ingest.sh    - Dual JSON parser
+      generate-digest.sh - Grouped digest with star ratings
+      backup.sh         - Weekly hot backup + rotation
+
+CUDA VM (P40, 192.168.100.100)
+  llama-server :8080    - Qwen3.5-35B-A3B, 96k context
+  (tunneled to Mac :8081 via autossh)
+
+Launchd agents:
+  ai.openclaw.gateway        - OpenClaw Discord gateway (KeepAlive)
+  com.user.openclaw-cuda-tunnel - autossh to P40 (KeepAlive)
+  com.openclaw.health-check  - 5-min health probe
+  com.openclaw.observe       - 15-min observation
+  com.openclaw.interpret     - 30-min interpretation (Mode B)
+  com.openclaw.activitywatch - Window tracking (KeepAlive)
+```
+
+---
+
+<br />
+
+### Data flow
+
+```
+Terminal commands -+
+Browser activity --+
+App focus ---------+-- observe.sh (15 min) --> rule classifier --> observations table
+Git status --------+                                                     |
+System metrics ----+                                                     |
+                                                                         v
+                                                          interpret.sh (30 min, Mode B)
+                                                                 |
+                                    +----------------------------+----------------+
+                                    v                            v                v
+                              digest_candidate            proactive_message   queue_autoresearch
+                                    |                     (budget-gated)           |
+                                    v                            |                v
+                            findings table                       |          jobs table
+                                    |                            |                |
+                                    v                            v                v
+                         generate-digest.sh ----------> Discord channel <-- drain-queue.sh
+```
+
+---
+
+<br />
+
+### Lessons Learned
+
+| # | Lesson | Evidence |
+|---|--------|----------|
+| 1 | Sub-1B models are not classifiers. Quantized models under 1B parameters cannot reliably output category labels. | Phase 2: Qwen 0.6B, Qwen2.5 0.5B and 1.5B all failed |
+| 2 | Cold start kills spawn-per-call patterns. If you can't keep the model resident, you can't use local LLMs on constrained hardware. | Phase 2: mlx-lm 34.5s load time |
+| 3 | Rule engines beat LLMs for small, well-defined classification. Four categories with known features? A bash case statement works. | Phase 7b: 0 RAM, sub-ms, no failures |
+| 4 | SSH multiplexing and long-running tunnels are incompatible. ControlMaster creates shared sockets that go stale. | Autossh bug: `-o ControlPath=none` fix |
+| 5 | Never use an LLM agent for non-interactive delivery. If the task is "send this exact text," don't route it through an agent. | Agent loop bug: 141 retries, 10-min timeout |
+| 6 | Workspace context is a tax, not a gift. Every byte auto-loaded into the LLM context is a byte unavailable for conversation. | Phase 3: -80% reduction |
+| 7 | Dedup at the database layer, not the application layer. A UNIQUE constraint on a hash column is simpler and more reliable. | Phase 4: `dedupe_hash TEXT UNIQUE` |
+| 8 | Two-mode architecture simplifies everything. Clean A/B split with queue-on-A and drain-on-B made every script simpler. | Phases 1, 8 |
+| 9 | launchd agents can't see the GUI. osascript and window queries fail from launchd context. Use ActivityWatch via HTTP. | Phase 6: app.sh "idle" under launchd |
+| 10 | Parse LLM output with fallback strategies. JSON first, line-scan fallback. Zero parse failures. | Phase 4: hunt-ingest.sh dual parser |

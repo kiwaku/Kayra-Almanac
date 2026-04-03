@@ -1,0 +1,117 @@
+---
+title: "Qut: Obsidian Vault Export"
+date: "2026-03-18"
+tags: ["ai", "hephaestus", "obsidian", "knowledge-graph"]
+project: qut
+images: []
+anomaly: false
+---
+
+Export the knowledge graph as a human-navigable Obsidian vault with wikilinks, backlinks, and daily notes. The "NotebookLM closure" from the original project plan.
+
+<br />
+
+### Background
+
+The knowledge graph (`knowledge.db`) had accumulated hundreds of entities, findings, and topics from research, observations, and web searches. But it was only accessible via SQL queries and the `knowledge.sh` CLI — useful for scripts, invisible to humans.
+
+The original project vision (inspired by NotebookLM) included a human-navigable layer on top of the graph. Obsidian was the natural choice: wikilinks + backlinks let you click through connections you'd never think to SQL-query, graph view shows visual clusters, daily notes make the 20:00 JST digest browsable, and the bidirectional loop means user-added notes or tags in Obsidian can feed back as interest signals to Sophia.
+
+---
+
+<br />
+
+### Vault Structure
+
+Location: `~/Obsidian/Hephaestus/`
+
+```
+Hephaestus/
++-- Entities/      # Named concepts, tools, people, projects
++-- Findings/      # Research results from hunts, curiosity, autoresearch
++-- Topics/        # Broader categories and search queries
++-- Daily/         # Daily digest notes (YYYY-MM-DD.md)
+```
+
+Each node type maps to a subdirectory. Files named by the node title (sanitized for filesystem safety).
+
+---
+
+<br />
+
+### Export Script
+
+`~/.openclaw/scripts/export-to-obsidian.sh`
+
+**Incremental by default.** The `nodes` table has an `obsidian_exported` column. The script queries for nodes where `obsidian_exported = 0`, exports them, then marks them. Repeated runs only process new or updated nodes.
+
+| Flag | Purpose |
+|------|---------|
+| `--all` | Full re-export (ignores exported flag) |
+| `--type entity\|finding\|topic` | Filter by node type |
+| `--since YYYY-MM-DD` | Only export nodes created after date |
+
+**Output format.** Each node becomes a Markdown file with YAML frontmatter and wikilinks generated from edges:
+
+```markdown
+---
+type: finding
+source: sophia_curiosity
+created: 2026-03-18
+identity_score: 0.72
+activity_score: 0.45
+tags: [snn, audio-synthesis, research]
+---
+
+# SNN Real-Time Audio Synthesis Research
+
+Found via [[Sophia Curiosity]] search on 2026-03-18.
+
+## Summary
+[finding summary from knowledge.db]
+
+## Related
+- [[ZLUDA]] -- related_to
+- [[Audio Synthesis]] -- mentions
+```
+
+The `[[wikilinks]]` are generated from the `edges` table — each edge relationship becomes a link to the connected node's file. This is what makes Obsidian's backlink and graph view features work.
+
+**Hermes skill.** Created `~/.hermes/skills/productivity/export-to-obsidian` so Hermes can trigger exports on demand or automatically after sophia-curiosity runs.
+
+---
+
+<br />
+
+### Daily Notes Integration
+
+Updated `generate-digest.sh` to write the daily digest as `~/Obsidian/Hephaestus/Daily/YYYY-MM-DD.md` in addition to sending it to Discord. The daily note contains wikilinks to the finding files delivered that day, creating a chronological browsing surface.
+
+---
+
+<br />
+
+### Growth Trajectory
+
+| Date | Files | Event |
+|------|-------|-------|
+| 2026-03-18 | 540 | Initial export (~380 entities, ~100 findings, ~60 topics) |
+| 2026-03-25 | ~3,000+ | OpenAI import added 471 new nodes + ongoing extraction |
+| 2026-03-29 | 84,036 | Full re-export after entity dedup (Phase 2 removed 4,830 duplicates) |
+| 2026-03-31 | 85,957 | Local snapshot — continued growth from observations and research |
+
+The jump from 540 to 84k reflects the knowledge graph's rapid growth via automated entity extraction (`extract-entities.sh` running hourly via Hermes cron). Each finding or topic processed by the CUDA NER pipeline generates dozens of entity nodes.
+
+---
+
+<br />
+
+### What This Enables
+
+1. **Browse research by clicking** — start at a finding, follow wikilinks to entities, see what else mentions them
+2. **Spot gaps visually** — isolated clusters in graph view suggest underexplored connections
+3. **Tag for follow-up** — add `#unexplored` or `#research` tags in Obsidian; future Sophia runs could pick these up
+4. **Daily journal** — each day's digest is permanently archived and navigable
+5. **Dual scoring visible** — frontmatter shows both `identity_score` and `activity_score`, making the ranking model transparent
+
+**Not in scope (deferred):** NotebookLM session import, Obsidian plugins (Dataview, Smart Connections), Obsidian sync/publish, vault-to-KG feedback loop (scanning vault for `#unexplored` tags).

@@ -1,0 +1,243 @@
+---
+title: "Qut: OpenClaw Discord Bot Setup"
+date: "2026-03-01"
+tags: ["ai", "hephaestus", "discord", "openclaw", "qwen", "ssh"]
+project: qut
+images: []
+anomaly: false
+---
+
+Install OpenClaw v2026.3.8, connect it to the Qwen3.5 model on the CUDA VM (P40), and get a persistent Discord-resident research assistant running on the Mac.
+
+<br />
+
+### Background and Goal
+
+The lab already had a working local inference stack: Qwen3.5-35B-A3B-UD-Q4_K_XL running on llama-server on the P40, accessible via SSH tunnel. But interactions were ephemeral — fire up claude-local or aider-local in a terminal, do some work, close it. Nothing persisted between sessions. No way to talk to it from a phone. No autonomy.
+
+The goal was a **persistent Discord-resident assistant** — always online, reachable from any device, capable of autonomous research and proactive observation. Discord was the natural choice: it already had mobile/desktop clients, supported rich messages and embeds, and had a mature bot API. The Mac (8GB M1 MacBook Air) would run the bot gateway, and the P40 would handle inference.
+
+OpenClaw is an open-source Discord bot framework that wraps a conversational AI agent (pi-agent-core) with Discord gateway integration, session management, tool execution, and message routing. It supports multiple LLM providers through a plugin system. Version 2026.3.8 was current.
+
+---
+
+<br />
+
+### Architecture target
+
+```
+Discord (cloud) <-> OpenClaw gateway (Mac) <-> autossh tunnel <-> llama-server (CUDA VM, P40)
+```
+
+- **Discord server:** "QUT" (guild `1480687290421608709`)
+- **Channel:** `1480687290928988172`
+- **Bot name:** "Honda Civic HB 1992"
+- **Model:** `Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf` (~20.6 GB, Unsloth Dynamic 2.0)
+- **Tunnel endpoint:** `localhost:8081` on the Mac, forwarded to `192.168.100.100:8080` on the CUDA VM
+
+---
+
+<br />
+
+### Installation
+
+OpenClaw installed via npm global:
+
+```bash
+npm install -g openclaw
+```
+
+Configuration lives at `~/.openclaw/openclaw.json`. This file contains the Discord bot token (plaintext) and must never be displayed or committed. All config inspection goes through `openclaw config` CLI commands.
+
+Discord bot was created through the Discord Developer Portal — standard OAuth2 bot with message content intent enabled. Added to the QUT server.
+
+---
+
+<br />
+
+### The Model Configuration Nightmare
+
+This consumed the majority of the setup time. OpenClaw's model configuration has multiple layers, underdocumented format changes between versions, and an auto-discovery hook that silently destroys manual configuration.
+
+**Attempt 1: `"api": "openai"`** — First instinct, since llama-server exposes an OpenAI-compatible API. It does not work. `"openai"` is not a valid pi-ai provider type. OpenClaw has its own taxonomy: `openai-completions`, `ollama`, `anthropic-messages`, `openai-responses`, `google-generative-ai`, `google-vertex`, `mistral-conversations`, `bedrock-converse-stream`, `azure-openai-responses`, `openai-codex-responses`, `google-gemini-cli`.
+
+**Attempt 2: `"api": "openai-completions"`** — The name suggests "OpenAI completions API" — what llama-server speaks. The bot showed "running" status. Then nothing. No response. No error. No timeout. Debug logs showed **zero LLM requests**. The agent loop initialized, entered its processing state, and hung. The `openai-completions` provider has a broken agent loop in 2026.3.8. The failure mode is pure silence — no error, no stack trace, just a bot that shows "running" forever until the 10-minute hard timeout kills it.
+
+**Attempt 3: `"api": "openai-responses"`** — This uses the `/v1/responses` endpoint, which llama-server supports. It worked immediately. Despite `openai-completions` sounding like the right choice for a completions API, `openai-responses` is the one that actually has a functioning agent loop in OpenClaw 2026.3.8.
+
+---
+
+<br />
+
+### The Ollama discovery hook
+
+With the API type sorted, custom model providers defined in the agent-level config at `~/.openclaw/agents/main/agent/models.json` kept disappearing. Every gateway restart, the file was overwritten.
+
+The cause: Ollama was installed on the Mac, and OpenClaw has a discovery hook that probes `localhost:11434` on startup to find Ollama models. When it finds Ollama (or even when it doesn't — the probe itself triggers the hook), it regenerates `models.json` with whatever it discovers, wiping any custom providers.
+
+The fix was two-part:
+1. **Uninstall Ollama** (`brew uninstall ollama`, `rm -rf ~/.ollama`). The hook still probes port 11434 on every restart (harmless WARN in logs, tracked as GitHub #3740), but with nothing listening, it doesn't overwrite anything.
+2. **Define providers in `openclaw.json`**, not in the agent-level `models.json`. The top-level `"models"` block in `openclaw.json` is hook-proof — it's the user's config, not the auto-discovered config.
+
+---
+
+<br />
+
+### The config format maze
+
+Even after finding the right location, getting the format right took multiple iterations.
+
+**Old format (broken):**
+```json
+{
+  "providers": {
+    "cuda": {
+      "models": [{ "name": "model", "authProfile": "local" }]
+    }
+  }
+}
+```
+This flat format is deprecated. Causes `Unknown model` FailoverError at runtime.
+
+**Working format:**
+```json
+{
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "cuda": {
+        "api": "openai-responses",
+        "baseUrl": "http://127.0.0.1:8081/v1",
+        "apiKey": "sk-none",
+        "models": [
+          { "name": "Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf" }
+        ]
+      }
+    }
+  }
+}
+```
+
+Key requirements:
+- Must wrap in `"models": { "mode": "merge", "providers": { ... } }` — the `mode: merge` is required
+- Provider-level `apiKey` (not per-model `authProfile`) — the old `authProfile` field is deprecated
+- `apiKey: "sk-none"` for local servers that don't need auth (llama-server ignores it)
+
+---
+
+<br />
+
+### SSH Tunnel Stability
+
+The Mac needs a persistent tunnel to reach llama-server on the CUDA VM (which is on the internal lab network, vmbr2). This turned into a multi-day debugging session.
+
+**Attempt 1: raw SSH tunnel** — `ssh -f -N -L 8081:192.168.100.100:8080 bastion`. Worked initially. Died silently within hours. No error, no log, no indication. Just "LLM request timed out" on the next Discord message.
+
+**Attempt 2: autossh** — `autossh -M 0 -f -N -L 8081:192.168.100.100:8080 bastion`. Better, but still failed intermittently. The tunnel would work for hours, then suddenly every request would time out.
+
+**Root cause: ControlMaster conflict.** The Mac's `~/.ssh/config` had a global `Host *` block with `ControlMaster auto` and `ControlPersist 10m`. This creates shared SSH multiplexing sockets so that multiple connections to the same host reuse a single TCP connection. Autossh's tunnel connection went through this mux socket. After 10 minutes of ControlPersist idle timeout, the master connection closed. The mux socket went stale. Autossh's monitoring didn't detect this because it happens at the autossh level, not at the SSH mux level. Result: tunnel dead, autossh doesn't know, broken pipe on next request.
+
+**Fix:** `-o ControlPath=none -o ControlMaster=no` on the autossh invocation to opt out of the global mux settings.
+
+**Final setup: launchd + autossh.** Wrapped in a launchd agent (`~/Library/LaunchAgents/com.user.openclaw-cuda-tunnel.plist`) with key settings:
+- `AUTOSSH_GATETIME=0` (required for launchd — autossh normally expects first connection within 30s, but launchd may start it before the network is ready)
+- `-o ControlPath=none -o ControlMaster=no` (critical — prevents mux socket stale death)
+- `KeepAlive: true` (launchd restarts autossh if it dies)
+- `-o ServerAliveInterval=60 -o ServerAliveCountMax=3` (SSH-level keepalive)
+
+This configuration has been stable since deployment.
+
+---
+
+<br />
+
+### Agent Loop and Delivery Gotchas
+
+**The infinite retry loop.** Early testing used `openclaw agent` to programmatically send messages (for cron jobs, automated research delivery). When the `message` tool validation failed (error: "message required"), Qwen would retry the tool call. And retry. And retry. 141 tool calls in a row, burning through the entire 10-minute agent timeout, generating thousands of tokens, polluting the session context, and never producing a useful response.
+
+**The fix: bypass the LLM for delivery.** For any non-interactive delivery (cron results, scheduled digests, research findings):
+
+```bash
+openclaw message send \
+  --channel discord \
+  --target "channel:1480687290928988172" \
+  --message "text content here"
+```
+
+This bypasses the LLM entirely — no agent loop, no tool calls, no retry risk. Instant delivery. Hard rule: never use `openclaw agent` for non-interactive delivery.
+
+**Provider timeout** — not configurable in 2026.3.8. The `agents.defaults.timeoutSeconds` controls the agent run timeout (10-min hard kill), not per-request timeout. Slow responses must be fixed at the source.
+
+---
+
+<br />
+
+### Other Issues and Fixes
+
+**Thinking mode.** Qwen3.5 defaults to "thinking" mode (`<think>...</think>` block before the response). Adds 500-2000 tokens of latency per message. Disabled at two layers: `--chat-template-kwargs '{"enable_thinking": false}'` in the llama-server systemd unit, and `thinkingDefault: off` in OpenClaw config.
+
+**NO_REPLY behavior.** Qwen outputs the literal string `NO_REPLY` for trivial messages ("hi", "test", emoji-only). By design — the agent system prompt instructs this for messages that don't warrant a response.
+
+**Channel isolation.** Each Discord channel gets its own OpenClaw session. The bot cannot see its own messages from other channels. Cross-channel context requires shared state at the infrastructure level (queue.db, memory files), which became the motivation for the hybrid autonomy upgrade.
+
+**Config CLI bugs.** `openclaw config set` for `channels.modelByChannel` is broken due to validation issues (GitHub #22963, #23203). Workaround: edit `openclaw.json` directly.
+
+**Debug logging.** Default logging shows almost nothing useful. The real debug output requires `"logging": {"level": "debug", "file": "gateway.log"}`. Logs go to `~/.openclaw/workspace/gateway.log` (not `/tmp/openclaw/` as the docs suggest).
+
+**Brave Search.** OpenClaw's web search requires a Brave API key. Initially configured for autonomous research. Later replaced by SearXNG when the Brave API hit 402 rate limits.
+
+---
+
+<br />
+
+### Final Working Configuration
+
+After ~10 days of iteration:
+
+| Component | Detail |
+|-----------|--------|
+| **OpenClaw version** | v2026.3.8 |
+| **Config** | `~/.openclaw/openclaw.json` |
+| **Discord server** | "QUT" (guild `1480687290421608709`) |
+| **Bot name** | Honda Civic HB 1992 |
+| **Model** | `cuda/Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf` |
+| **API type** | `openai-responses` |
+| **Tunnel** | autossh launchd, `localhost:8081` to `192.168.100.100:8080` |
+| **Thinking** | Disabled (server + client) |
+| **Gateway** | launchd agent, KeepAlive |
+| **Ollama** | Uninstalled |
+
+**Message flow:**
+
+```
+User types in Discord
+  -> MESSAGE_CREATE event
+  -> OpenClaw gateway receives it
+  -> Typing indicator sent
+  -> Preflight checks (channel config, model routing)
+  -> inboundWorker enqueues the message
+  -> pi-agent-core starts an agent run
+  -> LLM request to localhost:8081 (-> autossh -> bastion -> CUDA VM llama-server)
+  -> Model generates response
+  -> Agent loop processes tool calls (if any)
+  -> Final response posted to Discord channel
+```
+
+---
+
+<br />
+
+### Mistakes and Lessons Learned
+
+| # | Issue | Resolution | Lesson |
+|---|-------|------------|--------|
+| 1 | Used `"api": "openai"` — not a valid provider type | Changed to `"openai-responses"` | OpenClaw has its own API type taxonomy. Read the source, not the docs. |
+| 2 | Used `"api": "openai-completions"` — agent loop hangs silently | Changed to `"openai-responses"` | Silent hangs are the worst failure mode. Always check debug logs for zero-request conditions. |
+| 3 | Custom providers in agent-level `models.json` wiped by Ollama discovery hook | Moved providers to `openclaw.json` top-level `"models"` block | Auto-discovery hooks can destroy manual config. Put custom config where hooks can't reach. |
+| 4 | Used deprecated flat provider format — `Unknown model` FailoverError | Wrapped in `{ "models": { "mode": "merge", ... } }` | Config format changes between versions. Match the exact structure the code expects. |
+| 5 | Used per-model `authProfile` field — deprecated | Switched to provider-level `apiKey: "sk-none"` | Auth moved from model-level to provider-level. Old fields silently ignored. |
+| 6 | Raw `ssh -f -N -L` tunnels die silently | Replaced with autossh + launchd | Never use raw SSH tunnels for always-on services. |
+| 7 | autossh tunnel died due to ControlMaster mux socket going stale | Added `-o ControlPath=none -o ControlMaster=no` | Global SSH settings can interfere with long-lived tunnels. Opt out explicitly. |
+| 8 | Used `openclaw agent` for cron delivery — infinite retry loop (141 calls) | Switched to `openclaw message send` | Never route automated delivery through an LLM agent loop. |
+| 9 | Assumed provider timeout was configurable | Accepted limitation, fixed at source | Check what's actually configurable in your version before debugging config. |
+| 10 | Trusted default log level to show useful information | Set `"logging": {"level": "debug"}` | Always enable debug logging during initial setup. |

@@ -1,0 +1,237 @@
+---
+title: "Qut: Knowledge Graph Entity Dedup"
+date: "2026-03-29"
+tags: ["ai", "hephaestus", "knowledge-graph", "dedup", "qwen", "python"]
+project: qut
+images: []
+anomaly: false
+---
+
+Remove duplicate entity nodes from the knowledge graph — 4,830 duplicates merged across two phases. Phase 1: deterministic string normalization (3,969 merged in 4 seconds). Phase 2: token blocking + RapidFuzz + Qwen LLM judgment (861 merged across 48,200 candidate pairs over ~3.5 hours of GPU time).
+
+<br />
+
+### Background
+
+By late March, the knowledge graph had grown to **86,874 entity nodes** and **143,050 edges**. Because entity names arrived in whatever form the source happened to use, thousands of duplicate nodes had accumulated. The same concept might exist as 3-4 separate nodes with different edges, fragmenting the graph and inflating the Obsidian vault with redundant files.
+
+Duplicates fell into three categories:
+- **Trivial:** "openai" / "OpenAI" / "Open AI" — case + spacing
+- **Spelling:** "optimisation" / "optimization", "archivio" / "archivo"
+- **Semantic near-misses:** "supervised learning" / "unsupervised learning" — string-similar but semantically distinct
+
+The first two are solvable with deterministic string normalization. The third is the hard problem: no string similarity threshold can separate "8-bit quantization" from "4-bit quantization", or "VRAM" from "NVRAM".
+
+The extraction pipeline had also ingested some garbage entities — long chains of nested `chroot/iso/iso/...` paths (from a Kali Linux build guide), `SNN IoU mAP@0.5:0.9999...` values differing only by trailing digits (from ML paper results tables), and `rm -rf` commands treated as entity names (from forum posts). A cleanup issue for later, but the dedup handled them correctly.
+
+---
+
+<br />
+
+### Phase 1 — Deterministic Normalization
+
+Script: `~/.openclaw/scripts/dedup-entities.sh --exact-only`
+
+**Two-pass normalization:**
+
+**Phase 1a (conservative):** lowercase, collapse whitespace, strip quotes, trailing plurals (words > 4 chars), trailing periods.
+
+**Phase 1b (aggressive):** additionally strip all separators (spaces, hyphens, underscores, dots, colons, slashes), `r/` subreddit prefix, leading "the", trademark symbols. Phase 1b only runs on entities not already grouped by 1a, preventing over-merging.
+
+**Canonical selection:** when multiple entities normalize to the same form, the one with the most inbound edges wins as canonical. All edges from aliases are reassigned via `UPDATE OR IGNORE` (silently dropping duplicates), then the alias node is deleted.
+
+**Results:** 3,969 duplicates merged, 0 errors, 4 seconds. Backup at `knowledge.db.pre-dedup-backup`.
+
+---
+
+<br />
+
+### Phase 2 — The Dedupe Detour
+
+The original plan was to use the Dedupe library (Python record linkage framework). Dedupe learns blocking predicates from labeled examples, then we'd use Qwen for final semantic judgment on proposed groups.
+
+**Attempt 1 (500 entities):** Dedupe v3.0 changed its API — variable definitions switched from dicts to objects. Fixed, but active learning with a conservative prompt produced 0 match labels out of 5 rounds. With only 500 entities, random sampling never surfaced a true duplicate. Model crashed: `ValueError: This solver needs samples of at least 2 classes`.
+
+**Attempt 2 (5,000 entities):** Increased pool, 15 rounds of 5 pairs. Got 6 matches and 9 distincts — enough to train. 50 clusters, 28 confirmed by Qwen. Looked promising.
+
+**Attempt 3: instability.** Re-running on the same 5,000 entities gave different label distributions each time (active learning is stochastic). Second run: 4 match / 11 distinct, 0 clusters at threshold 0.5. Third run: 2 match / 13 distinct, 3 clusters at threshold 0.01.
+
+**Root cause:** Dedupe's blocking predicates are trained on the label distribution. With a conservative prompt that correctly rejects most pairs (because most string-similar pairs ARE genuinely distinct), the model learns extremely narrow predicates. It blocks too aggressively — throws away good candidates before they reach the LLM. Fundamental mismatch: Dedupe is designed for datasets where most similar records ARE duplicates (customer databases, mailing lists). In a knowledge graph where "Tesla P40" and "Tesla P4" are genuinely different things, the prior is inverted.
+
+**Decision: abandon Dedupe.**
+
+---
+
+<br />
+
+### Phase 2 — Token Blocking + RapidFuzz + Qwen
+
+Separated the two concerns Dedupe tried to combine:
+
+1. **Token blocking** (candidate generation) — fast, dumb, overly inclusive
+2. **Qwen on P40** (semantic judgment) — slow, smart, conservative
+
+Philosophy: let the blocker generate too many candidates (false positives are cheap — just waste LLM calls), let the LLM reject everything that isn't a true match (false negatives are permanent data loss).
+
+**Token blocking:** split each entity title into tokens, build an inverted index (token -> entity list), any two entities sharing a token land in the same comparison block. Block size cap of 500 (common tokens like "learning" would generate millions of comparisons). Length ratio filter > 0.6 (prevents matching "GPU" vs "GPU memory bandwidth optimization"). `seen_in_block` dedup to prevent self-matching on duplicate tokens.
+
+**Threshold selection:** tested on full 78k entity set. Threshold 80 produced 344,282 candidates (~24h of LLM time). **Threshold 90 produced 48,200 candidates** (~5h) — selected.
+
+**Batch LLM calls:** 10 pairs per prompt instead of single-pair calls. Reduced API calls from 48,200 to 4,820. Each batch ~1-2 seconds for Qwen. Response parsing line-by-line with conservative fallback: unparseable lines treated as DISTINCT, short responses padded with DISTINCT.
+
+---
+
+<br />
+
+### Prompt Engineering
+
+**v1 prompt — too loose.** Asked whether entities "refer to the same real-world entity or concept." Produced false positives on subset matches: "FILCO Majestouch" / "FILCO Majestouch 2" incorrectly MATCH (different keyboard versions), "Hephaestus PC" / "Hephaestus" incorrectly MATCH (specific machine vs project name), "audio synthesis" / "audio synthesis architecture" incorrectly MATCH.
+
+**v2 prompt — conservative, correct.** Rewrote to emphasize "the EXACT same thing" with explicit DISTINCT examples for every failure mode: version numbers matter (v1 != v2, Pro != non-Pro), prefixes un-/non-/anti-/re- change meaning, qualifying words (version, location, type) make entities DISTINCT. When in doubt, DISTINCT.
+
+**Benchmark validation:** 3/4 true positives (75%, one acceptable miss on synthesis/synthesiser), **8/8 true negatives (100%)**, all 9 previous v1 false positives corrected.
+
+**Double-merge bug.** "psychoacoustic coding" matched both "psychoacoustic encoding" AND "psychoacoustic decoding." If both merges executed, encoding and decoding would collapse through a shared alias chain. Fixed with `consumed_ids` tracking — once an entity is assigned as an alias, it's excluded from all subsequent merges. **280 pairs** were MATCH_SKIPPED by this mechanism.
+
+---
+
+<br />
+
+### The Full Run — Resilience Engineering
+
+**First attempt: raw nohup.** Started at 12:27 (48,200 pairs, estimated ~5 hours). Process died at batch 950 (~1 hour in) when WiFi reconnected after a brief outage and the SSH tunnel dropped.
+
+**Second attempt: setsid.** macOS doesn't have `setsid`. No direct equivalent.
+
+**Third attempt: auto-restart wrapper.** The realization: we can't prevent crashes, but we can make crashes cheap. The Python script already wrote every judgment to a JSONL file and skipped already-judged pairs on startup. Built `dedup-phase2-runner.sh`:
+
+- CUDA lock at `/tmp/cuda-inference.lock` with PID/holder/timestamp — prevents other scripts from competing for P40 time
+- Tunnel health check between retries — waits 30s for autossh reconnect
+- `caffeinate -i` wrapping the entire runner — prevents macOS sleep
+- Trap on EXIT/INT/TERM — releases CUDA lock on unexpected termination
+- Up to 50 retries
+
+**Resume mechanism:** on restart, loads existing JSONL records, rebuilds consumed_ids and counts, filters candidates to only unjudged pairs, continues from where it left off.
+
+**Timeline:**
+
+```
+12:27  Run 1 starts              batch 1/4820     (0 pairs done)
+13:05  WiFi drops                batch 950         (9,635 pairs done)
+       ~5 hour gap -- laptop lid closed, WiFi issues
+
+18:10  Run 2 resumes             skipped 9,635     -> batch 1/3857
+19:25  WiFi drops again          batch 600          (15,669 pairs done)
+
+19:25  Run 3 resumes             skipped 15,669    -> batch 1/3254
+19:56  Process killed (exit 143) batch 500          (20,845 pairs done)
+
+19:56  Runner auto-restarts      attempt 2/50      -> batch 1/1618
+20:40  LLM timeout (1 batch)     "Section 3.XXX"   (10 errors, all DISTINCT)
+21:49  Run completes             batch 1618/1618   (48,200 pairs done)
+21:49  861 merged, 0 merge errors
+```
+
+Total: ~3.5 hours of active LLM processing across 4 restarts (~9.5 hours wall clock including the laptop-closed gap). The JSONL grew to 48,200 records (8 MB).
+
+The 10 LLM errors were all from one batch of "Section 3.XXX" entities — numbered RFC/paper section references with high string similarity but different section numbers. The batch timed out (120s limit). All genuinely DISTINCT anyway.
+
+---
+
+<br />
+
+### Results
+
+| Metric | Phase 1 | Phase 2 | Total |
+|--------|---------|---------|-------|
+| **Merged** | 3,969 | 861 | **4,830** |
+| **Merge errors** | 0 | 0 | **0** |
+| **Rejected by Qwen** | -- | 47,329 | -- |
+| **Skipped (consumed_ids)** | -- | 280 | -- |
+
+**Phase 2 category breakdown:**
+
+| Category | Count | % | Examples |
+|----------|-------|---|---------|
+| Semantic spelling/abbreviation | 804 | 93.4% | "multi-layer perceptron" / "multilayer perceptron" |
+| SNN floating-point noise | 39 | 4.5% | mAP values differing by trailing 9s |
+| File extension variants | 8 | 0.9% | "runtime_vs_dropout.png" / "runtime_vs_dropout" |
+| Frequency format variants | 6 | 0.7% | "437.800 MHz" / "437.8 MHz" |
+| LaTeX/figure references | 3 | 0.3% | figure ref variants |
+
+**Hardest correct merges by Qwen:**
+
+| Fuzz | Entity A | Entity B | Why correct |
+|------|----------|----------|-------------|
+| 90 | `torch.utils.data.sampler.SubsetRandomSampler` | `torch.utils.data.SubsetRandomSampler` | Same class, full vs short import |
+| 90 | `Kayra Arai` | `Kaira Arai` | Same person, typo in first name |
+| 90 | `437.800 MHz` | `437.8 MHz` | Same frequency, trailing zeros |
+| 90 | `num_classes` | `n_classes` | Same variable, naming convention |
+| 98 | `torch.optim.ReduceLROOnPlateau` | `torch.optim.ReduceLROnPlateau` | Same class, typo (extra O) |
+| 98 | `object-centred peaks` | `object-centered peaks` | UK/US spelling |
+
+**Hardest correct rejections:**
+
+| Fuzz | Entity A | Entity B | Why distinct |
+|------|----------|----------|-------------|
+| 99 | `extension_contextmenu_linkedfile.png` | `extension_contextmenu_linkedfiles.png` | Different screenshots |
+| 98 | `GLM-4.7-...-MAX.I04_NL.gguf` | `GLM-4.7-...-MAX.IQ4_NL.gguf` | Different quantization formats |
+| 98 | `The Pod Boutique Capsule Hotel` | `The Pod Boutique Capsule Hostel` | Different accommodation types |
+| 98 | `thermal pad 120x120x0.5 mm` | `thermal pad 120x120x0.25 mm` | Different thicknesses |
+
+**Match rate by fuzz score:** remarkably consistent at ~2% regardless of score. Even at fuzz 99, 98% of pairs are DISTINCT. String similarity alone cannot distinguish matches from non-matches — the LLM is doing the actual work.
+
+**Knowledge graph state:**
+
+| Metric | Before | After Phase 1 | After Phase 2 |
+|--------|--------|---------------|---------------|
+| **Total nodes** | ~88,900 | ~84,900 | **84,036** |
+| **Entity nodes** | ~86,800 | ~82,900 | **82,105** |
+| **Edges** | 143,050 | 143,050 | **143,050** |
+
+Post-merge cleanup: 788 orphaned `edge_events` rows referencing deleted node IDs, cleaned with a single DELETE query. Re-exported to Obsidian: 84,036 files regenerated.
+
+---
+
+<br />
+
+### Decision Log
+
+| Option | Verdict | Reason |
+|--------|---------|--------|
+| Splink | Rejected | Designed for multi-column record linkage. Single-column entity names are an anti-pattern |
+| Embeddings only | Rejected | Negation blindness — "supervised" and "unsupervised" cosine similarity > 0.90 |
+| RapidFuzz only (no LLM) | Insufficient | Can't distinguish "Tesla P40" from "Tesla P4" (fuzz=92) |
+| Dedupe blocking + Qwen | Rejected | Learned blocking too conservative with 98% DISTINCT distribution |
+| **Token blocking + RapidFuzz + Qwen** | **Selected** | Simple blocking (4.6s for 78k entities), LLM judges all candidates, fully resumable, 0 false merges |
+
+---
+
+<br />
+
+### HephaestusBar CPU Fix
+
+While waiting for the dedup run, also fixed the SwiftUI menubar app (`~/.openclaw/menubar/`).
+
+**Problem:** 25% CPU continuously. Two causes: fast poll interval was 10 seconds (too aggressive for a status indicator), and CUDA lock stale detection conflicted with `cuda-lock.sh` logic (flat 15-minute age threshold vs PID-alive = always valid). The mismatch caused the UI to flicker between "locked" and "stale" states, triggering unnecessary redraws.
+
+**Fix:** fast poll interval 10s -> 30s. Lock stale logic aligned with `cuda-lock.sh` behavior: PID alive = always valid, age only matters if no PID. CPU dropped to < 1%.
+
+---
+
+<br />
+
+### Mistakes and Lessons Learned
+
+| # | Issue | Resolution | Lesson |
+|---|-------|------------|--------|
+| 1 | Dedupe v3 API change (dict -> variable objects) | Updated to new API | Pin library versions or read changelogs before coding against an API |
+| 2 | Dedupe training crash with all-DISTINCT labels | Increased entity pool from 500 to 5,000 | Active learning needs enough data to surface positive examples |
+| 3 | Dedupe blocking too conservative with skewed labels | Switched to token blocking + RapidFuzz | Learned blocking assumes balanced distributions — 98% DISTINCT breaks it |
+| 4 | v1 prompt false positives on subset matches | Rewrote with explicit DISTINCT examples | Always dry-run LLM classifiers on known edge cases |
+| 5 | Self-match bug (duplicate tokens in same block) | Added `seen_in_block` set per token | Hash-based dedup at every stage |
+| 6 | Double-merge bug (entity consumed by two merges) | Added `consumed_ids` tracking (280 pairs saved) | Merge operations need exclusion sets. Graph operations are stateful |
+| 7 | `setsid` doesn't exist on macOS | Used caffeinate + auto-restart wrapper | macOS: use `caffeinate` and `launchd`, not Linux process tools |
+| 8 | WiFi drops killed SSH tunnel and process | Auto-restart wrapper + JSONL resume | Design for intermittent connectivity: resume > restart |
+| 9 | Single-pair LLM calls too slow (48k calls) | Batched 10 pairs per prompt, 10x fewer calls | Batch LLM calls when possible |
+| 10 | Batch prompts needed 120s timeout | Increased urllib timeout to 120s for batches | Scale timeouts with input size |

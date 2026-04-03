@@ -1,0 +1,43 @@
+---
+title: "Qut: OpenClaw Context Compaction Fix"
+date: "2026-03-12"
+tags: ["ai", "hephaestus", "openclaw", "qwen", "inference"]
+project: qut
+images: []
+anomaly: false
+---
+
+Prevent "Context overflow: prompt too large" crashes in long Discord sessions by lying to OpenClaw about the context window size.
+
+<br />
+
+### Problem
+
+The OpenClaw Discord bot connects to Qwen3.5-35B running on llama-server with a 96k context window. OpenClaw was configured with `contextWindow: 96000`, matching the server exactly. This left zero headroom — long Discord conversations accumulated tokens until the prompt exceeded the window, and OpenClaw's built-in compaction never kicked in because it thought it had the full 96k to work with. The session died with "Context overflow: prompt too large."
+
+---
+
+<br />
+
+### Fix
+
+Lowered `contextWindow` from 96000 to 65536 in both config files:
+
+- `openclaw.json` (top-level provider config)
+- `~/.openclaw/agents/main/agent/models.json` (agent-level config)
+
+Both files must agree — OpenClaw uses whichever it reads last, depending on the code path.
+
+The actual llama-server still runs at 96k (`-c 98304`). The 30k gap (96k minus 65k) gives OpenClaw room to detect pressure and compact before hitting the real limit. Added three compaction parameters to `agents.defaults`:
+
+- `compaction.reserveTokens: 16384` — 16k token buffer zone
+- `compaction.keepRecentTokens: 12000` — preserve last 12k tokens during pruning
+- `contextPruning.mode: "cache-ttl"` — evict oldest cached context first
+
+---
+
+<br />
+
+### Side fix: interpret.sh UTF-8
+
+Japanese YouTube titles captured by ActivityWatch (via the browser observation collector) were causing `Could not decode to UTF-8` errors in `interpret.sh`. Fixed by adding `db.text_factory = lambda b: b.decode('utf-8', 'replace')` to the SQLite connection in the Python block that queries observations. Replaces undecodable bytes with the Unicode replacement character instead of crashing.

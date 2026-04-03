@@ -1,0 +1,134 @@
+---
+title: "Qut: Autoresearch — Nanochat on the P40"
+date: "2026-03-11"
+tags: ["ai", "hephaestus", "ml-training", "cuda", "tesla-p40", "pytorch"]
+project: qut
+images: []
+anomaly: false
+---
+
+Automated ML training experiments on a Tesla P40, time-sharing VRAM with the Qwen3.5-35B inference server that powers the Discord assistant. Forked Karpathy's nanochat, ported to Pascal, and discovered that FP32 is 7.5x faster than FP16 on hardware with no tensor cores.
+
+<br />
+
+### Background
+
+The Discord assistant system runs on a CUDA VM (VM 100) with an NVIDIA Tesla P40 — 24GB of VRAM, Pascal architecture (SM 6.1). Normally, the GPU is fully occupied by llama-server serving Qwen3.5-35B-A3B (~20.5GB VRAM) for Discord conversations and autonomous research. The idea was to also use this GPU for automated ML training experiments, taking inspiration from Karpathy's nanochat codebase.
+
+The concept: stop the inference server, run a short training experiment (5-7 minutes), restart inference, ingest results, and repeat. The bot enters Mode A (CUDA offline) during training, queues any incoming messages, and the health-check system detects the restart and drains the queue automatically.
+
+Karpathy's nanochat was forked to `~/autoresearch` on the CUDA VM, with local changes on branch `autoresearch/p40-setup` (4 commits ahead of master).
+
+---
+
+<br />
+
+### Making nanochat run on Pascal
+
+The P40 is a 2016 GPU. nanochat targets modern hardware — Ampere and later. Getting it to run required four categories of changes.
+
+**PyTorch version.** PyTorch 2.5.1+cu121 is the last release supporting SM 6.1 (Pascal). Later versions dropped the compute capability entirely. This pins the entire CUDA toolchain.
+
+**Flash Attention 3 to SDPA.** FA3 requires Ampere (SM 8.0+) — hardware features that don't exist on Pascal. Replaced with PyTorch's built-in Scaled Dot-Product Attention (SDPA), which has a fallback path for older architectures.
+
+**torch.compile disabled.** `torch.compile` and the Dynamo compiler are broken on Pascal. JIT tracing fails with opaque internal errors. Fix: `torch._dynamo.config.disable = True` — forces eager mode.
+
+**Training configuration.** `EVAL_TOKENS=524288`, `WINDOW_PATTERN="L"` (compatible with SDPA), `DEVICE_BATCH_SIZE=16` (largest batch that fits in 24GB).
+
+---
+
+<br />
+
+### The FP32 discovery
+
+This was the most unexpected finding of the entire project.
+
+**Initial FP16 run** using mixed precision via autocast (nanochat's defaults): **~2,630 tokens/sec**, 17 steps completed, val_bpb = 2.900933. Suspiciously low — the P40 has 12 TFLOPS of FP32 compute.
+
+**The hypothesis:** Pascal was NVIDIA's last architecture before dedicated FP16 tensor cores. The P40 has no tensor cores at all — its FP16 path runs on the same CUDA cores as FP32, but with overhead from the narrower datatype and conversion steps. FP16 on Pascal might actually be *slower* than native FP32.
+
+**FP32 run** with autocast disabled entirely: **~19,800 tokens/sec**, 46 steps completed, val_bpb = 1.823370.
+
+| Metric | FP16 (autocast) | FP32 (native) | Ratio |
+|---|---|---|---|
+| Throughput (tok/s) | ~2,630 | ~19,800 | 7.5x |
+| Steps completed | 17 | 46 | 2.7x |
+| val_bpb | 2.900933 | 1.823370 | 1.6x better |
+| VRAM usage | ~18 GB | ~22 GB | 1.2x |
+
+**FP32 is 7.5x faster than FP16 on the P40.** The VRAM cost is modest — about 4GB more — because model weights are a small fraction of total VRAM compared to activations and optimizer states. On a 24GB card, the tradeoff is overwhelmingly in favor of FP32.
+
+All subsequent experiments used FP32 with autocast disabled.
+
+---
+
+<br />
+
+### Eager-mode fixes
+
+Disabling `torch.compile` forces eager mode, which exposes several assumptions in nanochat's codebase that the compiler normally papers over.
+
+**Optimizer state precision.** The optimizers (AdamW, Muon) stored internal state in whatever precision the parameters happened to be in. Mixed-precision residue from the original FP16 code path left some optimizer states in FP16. Fix: force all optimizer states to FP32 explicitly.
+
+**Gradient casting.** AdamW and Muon both needed explicit gradient handling: cast to FP32 before the optimizer step, apply the update, copy back. In compiled mode, the compiler fuses these automatically.
+
+**Scalar tensor placement.** The most subtle bug: scalar tensors (learning rate multipliers, epsilon values) defaulted to CPU in eager mode. The compiled path auto-moves them during graph construction, but eager mode executes immediately — a CPU scalar multiplied with a CUDA tensor triggers a silent device transfer on every step. Fix: explicitly place all scalar tensors on CUDA at initialization.
+
+Patches applied remotely via:
+```bash
+cat /tmp/p40_fix_optimizer.py | ssh cuda 'cd ~/autoresearch && python3 -'
+```
+
+---
+
+<br />
+
+### VRAM time-sharing
+
+The P40 has 24GB. Qwen3.5-35B-A3B at Q4_K_XL uses ~20.5GB. A training run needs the full GPU. There is no way to share — one process must yield entirely.
+
+**The protocol:**
+
+1. `systemctl stop llama-server` on the CUDA VM
+2. Bot health-check detects llama-server is down, switches to Mode A
+3. Incoming Discord messages are queued in queue.db
+4. Training experiment runs (~5-7 minutes)
+5. `systemctl start llama-server`
+6. health-check.sh detects restart, switches to Mode B
+7. Mode B recovery triggers `drain-queue.sh --all` + `interpret.sh`
+8. Queued messages are processed
+
+The entire cycle is transparent to Discord users — messages sent during training just take longer to get a response.
+
+**SSH quirk:** all remote commands to the CUDA VM must use `-o ClearAllForwardings=yes`. Without this, the SSH connection inherits port forwarding rules from the autossh tunnel, causing silent failures or wrong-port binds.
+
+---
+
+<br />
+
+### The runner evolution
+
+**v1: Shell script runner.** Standalone script orchestrating the full cycle. Worked but fragile — minimal error handling, no integration with the assistant's infrastructure.
+
+**v2: Hermes autoresearch-loop skill + autoresearch-train.sh.** Split into two parts: `autoresearch-train.sh` (atomic GPU cycle — stop llama-server, train, restart, ingest results into knowledge.db and queue.db) and a Hermes skill (`~/.hermes/skills/mlops/training/autoresearch-loop`) that handles experiment planning, hyperparameter selection, and scheduling. Hermes owns decisions, infrastructure scripts own execution.
+
+**Results tracking:** `results.tsv` (auto-appended, tab-separated with hyperparameters and metrics) and `~/.openclaw/runtime/autoresearch-benchmarks.md` (narrative log). Findings also ingested into the knowledge graph and digest pipeline.
+
+The P40's thermal situation is resolved (heatsink installed 2026-02-28, peaks at 62C under sustained load), so continuous autoresearch cycles are safe.
+
+---
+
+<br />
+
+### Mistakes and Lessons Learned
+
+| # | Mistake | What happened | Lesson |
+|---|---|---|---|
+| 1 | Assumed FP16 would be faster | Got 2,630 tok/s, assumed P40 was just slow | Always benchmark the obvious path. Pascal has no tensor cores — FP16 runs on same ALUs as FP32 but with conversion overhead |
+| 2 | Tried torch.compile first | Spent time debugging cryptic Dynamo errors | Check compute capability support before debugging the compiler |
+| 3 | Flash Attention 3 import crash | nanochat imported FA3 unconditionally | Guard hardware-specific imports behind capability checks. SDPA is the universal fallback |
+| 4 | Optimizer states silently in FP16 | Switching to FP32 didn't fix optimizer internals | Eager mode exposes precision mismatches that the compiler hides |
+| 5 | Scalar tensors on CPU | Learning rate values defaulted to CPU, causing silent per-step device transfers | In eager mode, nothing auto-migrates. Place all tensors on target device at init |
+| 6 | SSH port conflicts | Remote training commands failed due to autossh tunnel inheritance | Always use `-o ClearAllForwardings=yes` when SSHing to a host with active tunnels |
+| 7 | Monolithic runner script | First runner tried to handle everything in one script | Split atomic execution from orchestration. Single-responsibility scripts compose better |
+| 8 | No VRAM guard | Early versions would try to start training before llama-server released VRAM | Added VRAM check to dispatch — if CUDA is still occupied, job is queued |

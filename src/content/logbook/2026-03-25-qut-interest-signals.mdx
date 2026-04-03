@@ -1,0 +1,164 @@
+---
+title: "Qut: Interest Signal Pipeline"
+date: "2026-03-25"
+tags: ["ai", "hephaestus", "knowledge-graph", "scoring", "openai"]
+project: qut
+images: []
+anomaly: false
+---
+
+Dual scoring model for the knowledge graph, personal data ingestion (OpenAI ChatGPT 3-year export), and an interest inbox for importing external documents.
+
+<br />
+
+### The Time-as-Importance Problem
+
+The knowledge graph had a single `confidence` score per node. Recency dominated the formula: a Sophia curiosity search from yesterday scored higher than a concept the user had been discussing in ChatGPT for three years.
+
+This created a paradox: the system knew more about niche topics it had autonomously researched in the last 48 hours than about the user's core interests. "Spiking neural networks" (searched by Sophia twice) outranked "machine learning" (discussed in 200+ ChatGPT conversations over 3 years) because the confidence formula treated time as importance.
+
+The user's 3-year ChatGPT conversation history — 1,084 conversations spanning April 2023 to March 2026 — sat unused in an OpenAI personal data export zip. This was the richest signal source for "who you are" but had no ingestion path.
+
+---
+
+<br />
+
+### Dual Scoring Model
+
+Replaced the single `confidence` score with two orthogonal scores.
+
+**identity_score — "who you are."** Durable, provenance-first. Primary sort everywhere in the system.
+
+```
+identity_score = 0.35*P + 0.25*S + 0.20*G + 0.10*D + 0.10*R
+```
+
+| Component | Weight | What it measures |
+|-----------|--------|-----------------|
+| **P** (Provenance) | 0.35 | Where the signal came from. user_conversation=1.0, openai=1.5, system_curiosity=0.05, unknown_legacy=0.1 |
+| **S** (Substance) | 0.25 | Mention count across distinct sessions — repeated engagement, not just volume |
+| **G** (Graph integration) | 0.20 | Engagement-weighted neighbor count. Engaged neighbors count fully; system-only neighbors at 0.1x |
+| **D** (Diversity) | 0.10 | How many different origin types produced events for this node |
+| **R** (Recency modifier) | 0.10 | Mild recency signal with a floor of 0.3 — never a driver, just a tiebreaker |
+
+Key design decisions:
+- **OpenAI provenance = 1.5** (higher than live conversation at 1.0) — 3 years of deliberate ChatGPT usage is a stronger identity signal than a few Discord messages
+- **System curiosity = 0.05** — Sophia-discovered nodes get minimal identity weight unless the user subsequently engages
+- **Recency floor = 0.3** — a node from 2023 never fully decays
+
+**activity_score — "what's live right now."** Volatile, 7-day decay. Secondary sort.
+
+```
+activity_score = 0.50*A + 0.25*R + 0.15*C + 0.10*obs
+```
+
+| Component | Weight | What it measures |
+|-----------|--------|-----------------|
+| **A** (7-day decay) | 0.50 | Events in last 7 days, exponentially decayed |
+| **R** (24h burst) | 0.25 | Activity spike in last 24 hours |
+| **C** (Recent edges) | 0.15 | New connections formed recently |
+| **obs** (Observations) | 0.10 | Appearance in observation pipeline |
+
+---
+
+<br />
+
+### identity_floor — permanent minimum
+
+Some nodes should never fully decay:
+
+| Condition | Floor | Rationale |
+|-----------|-------|-----------|
+| OpenAI import | 0.45 | Deliberate 3-year ChatGPT usage is strong identity signal |
+| Artifact + engaged | 0.40 | User created something with this concept |
+| Session-strong | 0.50 | Multiple substantive conversation sessions |
+| System-only | none | Sophia-discovered nodes with no user engagement get no floor |
+
+**Backward compatibility.** `confidence = identity_score` — all existing consumers continue to work. New consumers should use `identity_score DESC, activity_score DESC` as the standard sort.
+
+**New table: node_metadata.** Aggregated stats per node: `session_count`, `substantive_mention_count`, `openai_mention_count`, `artifact_backed`, `origin_diversity`.
+
+**Scoring script: backfill-confidence.sh.** Two-pass algorithm: first pass computes P, S, D, R per node from `node_events`; second pass computes G (graph integration) using engagement-weighted neighbor scores from pass 1. Pure recomputation from events — can be re-run at any time.
+
+---
+
+<br />
+
+### Event Sources
+
+The scoring model depends on a rich event log. Four pipelines feed `node_events`:
+
+| Pipeline | Script | Event Types | Origin |
+|----------|--------|-------------|--------|
+| Discord conversations | `ingest-conversations.sh` | conversation_explicit, conversation_substantive, conversation_passing | user_conversation |
+| Unmatched messages | `extract-conversation-entities.sh` | entity_extracted (from NER) | user_conversation |
+| Interest inbox | `ingest-interests.sh` | interest_document, interest_entity | interest_import |
+| OpenAI export | `ingest-openai-export.py` | openai_conversation, openai_entity | user_origin |
+
+**Event origin gotcha.** OpenAI events are tagged `origin=user_origin` (not `openai_import`) in the database. The `migrate-origin.sh` script consolidated origin tags during development. To identify OpenAI events, filter by `event_type` (`openai_conversation`, `openai_entity`), NOT by `origin`.
+
+---
+
+<br />
+
+### Interest Inbox
+
+**Location:** `~/interests/inbox/`
+
+A file drop zone for importing external documents into the knowledge graph. The launchd plist `com.openclaw.ingest-interests` watches this directory and triggers `ingest-interests.sh` when files appear.
+
+**Supported formats:** `.pdf` (via pymupdf), `.txt`, `.md`, `.html`, `.json`, `.csv`
+
+**Pipeline:** file dropped -> launchd WatchPaths triggers ingest-interests.sh -> extract text -> create topic node in knowledge.db -> CUDA entity extraction (when available) -> log user_origin events -> archive file (move out of inbox).
+
+Deduplication via `~/interests/.manifest.tsv` tracking SHA256 hashes of processed files.
+
+---
+
+<br />
+
+### OpenAI ChatGPT Import
+
+Script: `~/.openclaw/scripts/ingest-openai-export.py`
+
+Input: OpenAI personal data export (`conversations.zip` from Settings -> Data Controls -> Export).
+
+| Metric | Value |
+|--------|-------|
+| Conversations processed | 1,084 |
+| Events created | 1,063 |
+| New nodes | 471 |
+| Merged with existing | 592 |
+| Date range | 2023-04-25 to 2026-03-16 |
+| Pending entity extraction | ~1,060 nodes (entities_extracted=0) |
+
+The script extracts full user + assistant text from each conversation, creates topic nodes (one per conversation), and logs `openai_conversation` events at weight 1.0. Dedup by `source+source_id` then `type+lowercase title`.
+
+**Impact.** After the import + scoring backfill, the identity leaderboard shifted dramatically. Concepts discussed repeatedly over 3 years in ChatGPT — machine learning fundamentals, specific programming languages, research methodologies — now ranked above one-off Sophia curiosity searches. The knowledge graph finally reflected the user's actual interests, not just the system's recent activity.
+
+---
+
+<br />
+
+### Consumer Updates
+
+| Script | Change |
+|--------|--------|
+| `sophia-gather.sh` | `high_interest_nodes` sorted by `identity_score DESC` |
+| `knowledge.sh` | `find-node`, `stats`, `search` all sort by `identity_score DESC` |
+| `export-to-obsidian.sh` | Writes both `identity_score` and `activity_score` to YAML frontmatter |
+| `backfill-confidence.sh` | Completely rewritten for dual scoring (two-pass, engagement-weighted G) |
+
+---
+
+<br />
+
+### Mistakes and Lessons Learned
+
+| # | Issue | Resolution | Lesson |
+|---|-------|------------|--------|
+| 1 | Single confidence score treated time as importance | Dual scoring: identity (durable) + activity (volatile) | Separate "who you are" from "what's happening now" |
+| 2 | System curiosity nodes outranked user interests | Provenance weighting: system_curiosity=0.05, user_conversation=1.0 | Weight by source trustworthiness, not volume |
+| 3 | OpenAI events tagged wrong origin | migrate-origin.sh consolidated origins; identify by event_type | Canonical identifiers should be immutable from ingestion |
+| 4 | Recency caused old interests to vanish | identity_floor provides permanent minimums | Some signals should never fully decay |
+| 5 | Graph component (G) counted system neighbors equally | Engagement-weighted: engaged 1.0x, system-only 0.1x | Not all edges are equal |

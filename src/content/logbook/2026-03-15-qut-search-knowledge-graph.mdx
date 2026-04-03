@@ -1,0 +1,149 @@
+---
+title: "Qut: Search, Curiosity & Knowledge Graph"
+date: "2026-03-15"
+tags: ["ai", "hephaestus", "knowledge-graph", "sqlite", "search", "openclaw"]
+project: qut
+images: []
+anomaly: false
+---
+
+Phases 13-15 of the Hybrid Autonomy system — web search routing, curiosity-driven exploration, knowledge graph, and daily scheduling routines. Dates: 2026-03-15 to 2026-03-18.
+
+<br />
+
+### Background
+
+Phases 1-12 built the structural foundation: job queue, health monitoring, observation pipeline, rule-based classifier, interpretation via CUDA dispatch, hunt lanes, Discord commands, digest generation, and backup. The system could observe, classify, and act on events — but it had no persistent model of what it knew. Every hunt lane started from scratch. Research findings were flat rows with no relationships. There was no way to ask "what do I already know about this topic?" or "what haven't I explored yet?"
+
+Phases 13-15 added the intelligence layer: a search router that could find information on the web, a curiosity engine that chose what to search for, and a knowledge graph that accumulated everything into a queryable structure.
+
+---
+
+<br />
+
+### Phase 13 — Search and Curiosity
+
+**The search problem.** The OpenClaw bot had web search through Brave's API. By mid-March it was returning HTTP 402 on every request — rate limit exceeded, no budget for a paid tier. Hunt lanes depending on web search were producing empty results.
+
+**search-router.sh** — dual-mode search frontend:
+
+- **Quick mode:** query goes to SearXNG, results come back, logged as an event in queue.db. Ephemeral — for answering a Discord question where results are consumed immediately.
+- **Research mode:** same SearXNG query, but results stored as a finding in the findings table, tagged for the next digest cycle. What the hunt lanes use.
+
+Both modes auto-ingest into the knowledge graph. The query string becomes a `topic` node, each search result becomes a `search_result` node, and `found_via` edges connect them. The graph gradually learns not just what was found, but what was searched for and how results relate.
+
+SearXNG runs self-hosted, aggregating results from multiple search engines without API keys or rate limits. All web search migrated from Brave to SearXNG.
+
+**The interpret.sh hook.** A new action type, `auto_search`, was added to the interpretation pipeline. When the CUDA LLM analyzes observations and decides something warrants a web search, it emits an `auto_search` action with a query and mode. `interpret.sh` dispatches this to `search-router.sh`. This closed the loop: the system could observe something interesting (say, the user browsing a topic repeatedly), interpret it as worth researching, and autonomously search for more information — all without human intervention.
+
+---
+
+<br />
+
+### Curiosity engine v1
+
+`curiosity.sh` gathered accumulated context — recent observations, conversation topics, knowledge graph nodes — and asked Qwen to propose novel research directions. Temperature set to 0.7 to encourage exploration over exploitation. The prompt was biased toward topics the system had seen but not yet deeply explored.
+
+It worked, in the sense that it produced research questions. But the questions were often unfocused. Without a model of what the user actually cared about, "novel" just meant "different from recent topics." It would propose researching obscure programming languages because they hadn't appeared in the graph, even though the user had no interest in them. Novelty alone is not curiosity.
+
+---
+
+<br />
+
+### Sophia: three-signal scoring
+
+The replacement, deployed March 18, is a hybrid curiosity scorer implemented as a Hermes auto-hunt lane (`sophia_curiosity`) with its skill definition at `~/.hermes/skills/research/sophia-curiosity/SKILL.md`.
+
+Sophia scores research candidates on three signals:
+
+**Curiosity (novelty):** How new is this topic relative to the existing knowledge graph? Topics with few or no nodes score high. Topics with dense subgraphs score low.
+
+**Mastery (learning progress):** Is the system actually making progress on this topic? A topic searched repeatedly with no new findings scores low — the system is stuck. A topic where each search yields genuinely new information scores high. Measured by the ratio of new nodes created to searches executed for a given topic cluster.
+
+**Coherence (plan consistency):** Does this topic connect to the user's active projects and stated interests? A topic relating to entities in recent conversations and active project files scores high. A random tangent scores low. This prevents the scatter problem: even if something is novel and shows learning progress, it gets downweighted if it has no connection to anything the user cares about.
+
+**Dynamic weighting.** The three signals are not weighted equally at all times. When the user is actively working (editor open, frequent commits, debugging signals), coherence weight increases and curiosity decreases — research things relevant to the current task. When the user is idle or browsing casually, curiosity weight increases — exploration is appropriate when there's no active task to support.
+
+The old `curiosity.sh` was renamed to `curiosity.sh.retired`.
+
+---
+
+<br />
+
+### HephaestusBar
+
+The SwiftUI menubar app got two additions during Phase 13: an activity log panel showing recent observations and search events, and a toggle for the curiosity engine.
+
+---
+
+<br />
+
+### Phase 14 — Knowledge Graph
+
+**Why a graph.** The findings table was a flat list. You could query "all findings from the last 24 hours" but not "all findings related to quantization" or "what topics connect VRAM usage to model quality." A graph solves this naturally: entities become nodes, relationships become edges, and pattern detection becomes graph traversal instead of string matching.
+
+**knowledge.db** — SQLite with five tables:
+
+**nodes** — every entity, topic, finding, search result, or observation the system has encountered. Types: `entity`, `topic`, `finding`, `search_result`, `observation`.
+
+**edges** — typed directional relationships between nodes. Types: `found_via`, `mentions`, `related_to`, `derived_from`, `answers`, `same_as`, `discussed_in`.
+
+**searches** — log of every web search with query, timestamp, result count, and mode. The provenance record.
+
+**node_events** — append-only log of interest signals. Every time a node is accessed, referenced, or interacted with, an event is recorded. Raw data for access_count-based scoring.
+
+**edge_events** — append-only evidence log. When the same relationship is observed from different sources, each observation is a separate event. Edge strength is proportional to evidence count.
+
+**knowledge.sh CLI** — 12+ subcommands (`stats`, `query`, `add-node`, `add-edge`, `log-event`, `recent`, `search`, `find-node`, etc.). Critical design choice: `flock` serialization on every write operation. Multiple scripts write to knowledge.db concurrently — `extract-entities.sh`, `search-router.sh`, `hunt-ingest.sh`. SQLite handles concurrent readers well but concurrent writers cause SQLITE_BUSY errors. Exclusive file locks before opening transactions eliminate write conflicts.
+
+**Entity extraction.** `extract-entities.sh` runs Qwen NER on findings and topics. For each text, sends a prompt to CUDA asking for named entities with types (person, tool, concept, organization). Each entity becomes a node, `mentions` edges connect to the source. Runs hourly via Hermes cron. By March 29, the graph had grown to 3,086 nodes and 2,590 edges across 325 searches — then later ballooned to 86,000+ nodes before dedup.
+
+**Pattern detection and hypothesis generation.** `detect-patterns.sh` performs co-occurrence analysis — if entities A and B both appear in findings about the same topic, they're likely related even without an explicit edge. `generate-hypotheses.sh` and `generate-research-questions.sh` use graph structure to find gaps: a topic with many inbound edges but few outbound is well-connected but under-explored.
+
+**Ingest hooks.** The graph is fed by hooks in existing scripts: `search-router.sh` creates topic + search_result nodes with `found_via` edges on every search; `hunt-ingest.sh` creates finding nodes with `answers` edges on every completed hunt. The graph grows organically as the system operates.
+
+---
+
+<br />
+
+### Phase 15 — Scheduling and Daily Routines
+
+**scheduler.sh** — 15-minute async job scheduler. Checks pending jobs, respects VRAM availability, handles retry logic. Replaced ad-hoc cron entries with a single scheduler managing execution order and concurrency.
+
+**daily-digest.sh** — generates a morning summary at 09:00 JST. Pulls previous day's findings from all lanes, groups by topic cluster (using knowledge graph relationships, not just lane assignment), sends formatted digest. The human-facing output of all autonomous research.
+
+**daily-reflection.sh** — summarizes the last 24 hours of raw observations (not research findings). What the user worked on, tools used, topics browsed. Feeds back into the knowledge graph for Sophia's coherence scoring.
+
+**weekly-habit-observer.sh** — looks at 7 days of observation data and identifies patterns. Recurring workflows, time-of-day preferences, tools that appear together. Trends rather than events.
+
+**generate-memory-md.sh** — produces updated memory files from the current knowledge graph state, recent observations, and accumulated findings.
+
+**ActivityWatch plist** — launchd plist for ActivityWatch (v0.13.2, Rosetta on M1). Tracks window focus and browser activity, ~51MB RAM total.
+
+**Architecture documentation.** `~/.openclaw/workspace/ARCHITECTURE.md` written as a comprehensive system reference cataloging every script (30+), database table, launchd job, and data flow.
+
+---
+
+<br />
+
+### Final State
+
+After Phases 13-15, the stack bottom to top:
+
+**Data layer:** queue.db + knowledge.db. Both SQLite WAL, both with flock serialization.
+
+**Observation layer:** observe.sh with 7 collectors, rule-based classifier, SHA256 dedup.
+
+**Interpretation layer:** interpret.sh dispatches 6+ action types including auto_search. IGNORE-hinted observations skipped without inference cost.
+
+**Search layer:** search-router.sh routes through SearXNG, dual-mode, auto-ingests into knowledge graph.
+
+**Knowledge layer:** knowledge.db accumulates everything. extract-entities.sh adds NER nodes. detect-patterns.sh finds connections. generate-hypotheses.sh and generate-research-questions.sh identify gaps.
+
+**Curiosity layer:** Sophia hybrid scorer (3-signal: novelty + mastery + coherence) with dynamic weighting. Hermes auto-hunt lane.
+
+**Routine layer:** scheduler.sh (15-min), daily-digest.sh (09:00), daily-reflection.sh (24h review), weekly-habit-observer.sh (7-day patterns).
+
+**Interface layer:** Discord commands (12), HephaestusBar (menubar app), Obsidian vault export.
+
+The system can now observe what the user is doing, classify whether it's interesting, search the web for related information, accumulate knowledge in a graph, detect patterns, generate new research questions from structural gaps, score those questions by curiosity and relevance, execute the research autonomously, and deliver a daily summary.

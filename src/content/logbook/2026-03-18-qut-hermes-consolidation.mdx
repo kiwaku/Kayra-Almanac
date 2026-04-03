@@ -1,0 +1,183 @@
+---
+title: "Qut: Hermes Agent Consolidation"
+date: "2026-03-18"
+tags: ["ai", "hephaestus", "hermes", "openclaw", "automation", "discord"]
+project: qut
+images: []
+anomaly: false
+---
+
+Replace fragmented launchd + OpenClaw scheduling with Hermes as the unified conversational and scheduling layer. 10 scripts retired, 8+ launchd plists replaced by 11 Hermes cron jobs.
+
+<br />
+
+### Background
+
+By Phase 15, the Discord assistant had grown organically into a sprawl of 30+ shell scripts in `~/.openclaw/scripts/`, 8+ launchd plists with different intervals and restart policies, 2 SQLite databases (queue.db, knowledge.db), and OpenClaw's embedded agent as the conversational layer (with quirks like infinite message-tool retry loops and 10-min hard timeout).
+
+Scheduling was particularly fragmented — hunt jobs ran on separate launchd timers, the digest had its own plist, health checks ran every 5 minutes via yet another plist, and there was no unified view of what was scheduled. Adding a new recurring task meant creating a new plist, loading it, and hoping the intervals didn't conflict with GPU-heavy tasks.
+
+Hermes was introduced as a unified layer that owns conversation, scheduling, and skill execution while delegating infrastructure work to the existing scripts.
+
+---
+
+<br />
+
+### What is Hermes
+
+| Component | Location |
+|-----------|----------|
+| Binary | `~/.local/bin/hermes` |
+| Config | `~/.hermes/config.yaml` |
+| Environment | `~/.hermes/.env` (Discord token, model endpoint) |
+| Soul/Persona | `~/.hermes/SOUL.md` (QUT identity) |
+| State DB | `~/.hermes/state.db` (sessions, messages, FTS) |
+| Skills | `~/.hermes/skills/` (27+ directories) |
+| Memory | `~/.hermes/memories/MEMORY.md` |
+| Model | `qwen3.5-35b-a3b-ud-q4_k_xl` via `http://127.0.0.1:8081/v1` (autossh tunnel to P40) |
+
+Key capabilities: auto-hunts (6 lanes including sophia_curiosity), auto-cron (declarative cron jobs in config.yaml executed via jobs.json), auto-skills (self-evolving after 5+ tool calls on a pattern), session memory with full-text search.
+
+Key skills:
+- `mlops/training/autoresearch-loop` — full experiment loop
+- `research/sophia-curiosity` — 3-signal curiosity scoring
+- `openclaw-imports/searxng-web-search` — SearXNG via search-router.sh
+- `openclaw-imports/ddgs-web-search` — DuckDuckGo fallback (free, no API key)
+
+---
+
+<br />
+
+### What Changed
+
+**Gateway.** OpenClaw's launchd service replaced by Hermes: `ai.openclaw.gateway` -> `ai.hermes.gateway` (KeepAlive). Hermes uses OpenClaw's Discord transport under the hood but owns the conversational loop, skill dispatch, and memory.
+
+**Scheduling — launchd plists to Hermes auto-cron.** All hunt plists were deleted. Scheduling moved entirely to Hermes cron:
+
+| Job | Schedule | Notes |
+|-----|----------|-------|
+| health-check | `*/5 * * * *` | CUDA probe, Mode A/B transitions |
+| observe | `*/15 * * * *` | 8 collectors -> observations table |
+| sophia-curiosity | `*/30 * * * *` | 3-signal curiosity scoring + search |
+| extract-entities | `0 * * * *` | CUDA NER on new findings/topics |
+| ingest-conversations | `17 * * * *` | Discord message -> KG bridge |
+| detect-patterns | `0 */2 * * *` | Co-occurrence analysis |
+| daily-reflection | `0 9 * * *` | 24h observation summary |
+| research-questions | `0 12 * * *` | Research gap identification |
+| daily-digest | `0 20 * * *` | Undelivered findings -> Discord |
+| backup | `0 3 * * 0` | Hot SQLite backup + config archive |
+| weekly-habit-observer | `0 10 * * 0` | 7-day behavioral patterns |
+
+**auto_cron gotcha.** `auto_cron` declarations in `config.yaml` are declarations-only — they are NOT auto-executed. Only entries in `jobs.json` actually run. This caused a bug: `daily_reflection` and `weekly_habit_observer` were declared in config.yaml but never created as real cron jobs. They silently never ran until manually created via `hermes cron create`.
+
+---
+
+<br />
+
+### 10 scripts retired
+
+| Retired Script | Replaced By |
+|---------------|-------------|
+| `command-dispatch.sh` | Hermes Discord gateway handles commands natively |
+| `drain-queue.sh` | Hermes cron + health-check.sh recovery |
+| `scheduler.sh` | Hermes cron scheduler |
+| `daily-digest.sh` | Hermes cron calling generate-digest.sh |
+| `generate-memory-md.sh` | Hermes native memory (MEMORY.md, USER.md) |
+| `hunt-ingest.sh` | Hermes auto-hunts + skills |
+| `interpret.sh` | Rule-based classifier in observe.sh + Hermes interpretation |
+| `autoresearch-runner.sh` | Hermes autoresearch-loop skill |
+| `autoresearch-dispatch.sh` | start-autoresearch.sh + Hermes skill |
+| `curiosity.sh` | Sophia curiosity Hermes skill |
+
+Scripts renamed to `*.retired` — not deleted, in case rollback needed.
+
+---
+
+<br />
+
+### What OpenClaw still owns
+
+Hermes doesn't replace everything. OpenClaw retains: observation pipeline (observe.sh + 8 collectors), knowledge graph (knowledge.sh, extract-entities.sh, detect-patterns.sh), queue/state management (queue-db.sh), health monitoring (health-check.sh), digest generation and delivery (generate-digest.sh, discord-send.sh), backup (backup.sh), search routing (search-router.sh).
+
+---
+
+<br />
+
+### Post-Migration Fixes
+
+A verification audit immediately after migration revealed several broken seams.
+
+**Fix 1: Digest delivery (119 backlogged findings).** Last digest had been delivered on 2026-03-12 — 6 days of findings were stuck. Two issues: JSON control characters (newlines in finding summaries) broke the Discord API call, and discord-send.sh couldn't handle lines > 1900 characters. Fixed sanitization and added chunking via temp-file split. 119 findings delivered in 12 chunks.
+
+**Fix 2: Reflection cron jobs never ran.** `daily_reflection` and `weekly_habit_observer` were declared in `auto_cron` (config.yaml) but this section is declarations-only. Created real jobs via `hermes cron create`.
+
+**Fix 3: Autoresearch to KG bridge missing.** Training results were logged to `results.tsv` and `queue.db` events, but never created nodes in `knowledge.db`. Added KG ingestion to `autoresearch-train.sh`: creates finding node (source=autoresearch), links to autoresearch topic via `derived_from` edge, inserts digest finding with SHA256 dedup.
+
+**Config fixes:** `compression.summary_provider` set to `main` (uses P40 for compression, not a nonexistent local model). `.env` had duplicate `LLM_MODEL` line — commented out the extra.
+
+---
+
+<br />
+
+### Final Architecture
+
+```
+HERMES AGENT (Layer 1 -- conversational + scheduling)
++-- Discord gateway (ai.hermes.gateway launchd)
++-- Cron scheduler (11 jobs)
++-- Auto-skills, session memory, FTS
+|
++-- Calls ~37 infrastructure scripts
+|
+INFRASTRUCTURE SCRIPTS (Layer 2 -- ~/.openclaw/scripts/)
++-- Observation, knowledge graph, search, delivery
++-- Health monitoring, queue management
++-- Autoresearch bridge, backup
+|
+DATA LAYER (Layer 3)
++-- queue.db  -- events, findings, observations, state
++-- knowledge.db -- nodes, edges, searches, events
++-- state.db  -- Hermes sessions, messages, FTS
+```
+
+**Remaining launchd plists (4 total):**
+
+| Plist | Purpose | Policy |
+|-------|---------|--------|
+| `ai.hermes.gateway` | Hermes daemon | KeepAlive |
+| `com.user.openclaw-cuda-tunnel` | autossh to P40 | KeepAlive |
+| `com.openclaw.activitywatch` | ActivityWatch | KeepAlive |
+| `com.openclaw.ingest-interests` | Interest inbox watcher | RunAtLoad/WatchPaths |
+
+Everything else runs via Hermes cron.
+
+---
+
+<br />
+
+### Before / After
+
+| Metric | Before (Phase 15) | After (Hermes) |
+|--------|-------------------|----------------|
+| Scheduling mechanism | 8+ launchd plists | 11 Hermes cron jobs + 4 infra plists |
+| Conversational layer | OpenClaw embedded agent | Hermes with skills + memory |
+| Script count | ~40 active | ~37 active + 10 retired |
+| Databases | 2 (queue.db, knowledge.db) | 3 (+state.db for Hermes) |
+| Adding a recurring task | Write plist XML, launchctl load | `hermes cron create` one-liner |
+| Viewing schedule | `ls ~/Library/LaunchAgents/com.openclaw.*` | `hermes cron list` |
+| Skill reuse | Copy-paste between scripts | Auto-skills after repeated patterns |
+| Memory | Flat markdown files | Hermes FTS-indexed memory |
+
+---
+
+<br />
+
+### Mistakes and Lessons Learned
+
+| # | Issue | Resolution | Lesson |
+|---|-------|------------|--------|
+| 1 | auto_cron is declarations-only, not auto-executed | Manually created jobs via `hermes cron create` | Declarative config does not equal imperative execution |
+| 2 | 119 findings backlogged (6 days undelivered) | JSON sanitization + chunking fix | Monitor delivery pipeline health, not just generation |
+| 3 | Autoresearch results not flowing to KG | Added KG ingestion to autoresearch-train.sh | Verify end-to-end data flow after migration, not just component health |
+| 4 | .env had duplicate LLM_MODEL line | Commented out extra | Environment files need the same review rigor as code |
+| 5 | compression.summary_provider pointed at nonexistent model | Set to "main" (P40) | Check all config references after swapping the model layer |

@@ -100,6 +100,58 @@ for (const vpName of ['mobile', 'narrow'] as const) {
           Math.abs(measure.computedMaxWidth - expected),
           `expected max-width=${expected} got ${measure.computedMaxWidth} (raw=${measure.maxWidth})`,
         ).toBeLessThan(2);
+
+        // Assertion 22 — floating "Show Debug Gridlines" panel hidden on mobile.
+        // The toggle is injected by InstrumentPanel.astro asynchronously
+        // (DOMContentLoaded or a 100 ms setTimeout) — wait for it, then check.
+        await page
+          .waitForFunction(() => !!document.getElementById('debug-toggle-ui'), null, {
+            timeout: 2_000,
+          })
+          .catch(() => {
+            /* panel never appeared — also acceptable (not in DOM ⇒ not visible) */
+          });
+        const debugToggle = await page.evaluate(() => {
+          const el = document.getElementById('debug-toggle-ui');
+          if (!el) return { exists: false };
+          const cs = getComputedStyle(el);
+          return { exists: true, display: cs.display, offsetParent: el.offsetParent !== null };
+        });
+        expect(
+          !debugToggle.exists || debugToggle.display === 'none' || !debugToggle.offsetParent,
+          `debug-toggle-ui should be hidden; got ${JSON.stringify(debugToggle)}`,
+        ).toBe(true);
+
+        // Assertion 23 — footer nav separator beads (.footer-nav .dot) hidden
+        const beads = await page.evaluate(() => {
+          const els = Array.from(
+            document.querySelectorAll('.footer-nav .dot'),
+          ) as HTMLElement[];
+          return els.map((el) => ({
+            display: getComputedStyle(el).display,
+            visible: el.offsetParent !== null,
+          }));
+        });
+        expect(beads.length, 'footer-nav should contain .dot beads in DOM').toBeGreaterThan(0);
+        for (const b of beads) {
+          expect(
+            b.display === 'none' || !b.visible,
+            `bead should be hidden; got display=${b.display} visible=${b.visible}`,
+          ).toBe(true);
+        }
+
+        // Assertion 24 — "Shortcuts: …" footer line hidden on mobile
+        const shortcuts = await page.evaluate(() => {
+          const el = document.querySelector('.footer-shortcuts') as HTMLElement | null;
+          if (!el) return { exists: false };
+          const cs = getComputedStyle(el);
+          return { exists: true, display: cs.display, visible: el.offsetParent !== null };
+        });
+        expect(shortcuts.exists, '.footer-shortcuts should exist in DOM').toBe(true);
+        expect(
+          shortcuts.display === 'none' || !shortcuts.visible,
+          `footer-shortcuts should be hidden; got ${JSON.stringify(shortcuts)}`,
+        ).toBe(true);
       });
     }
 

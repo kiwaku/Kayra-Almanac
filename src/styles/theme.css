@@ -33,6 +33,7 @@ html, body {
 a {
   color:var(--link);
   text-decoration:underline;
+  -webkit-tap-highlight-color: transparent;
 }
 a:visited {
   color:var(--link-visited);
@@ -795,13 +796,21 @@ details.raw code {
   p, li {
     line-height:1.5;
   }
-  /* Hide desktop chrome on mobile — decisions 02 §8 (LeftNav) and §10 (InstrumentPanel) */
+  /* Hide desktop chrome on mobile — decisions 02 §8 (LeftNav) and §10 (InstrumentPanel).
+     `#debug-toggle-ui` is the floating "Show Debug Gridlines" panel injected by
+     InstrumentPanel.astro's `createDebugToggle()`; hide it on mobile (its inline
+     `display: flex` requires !important to override). `.footer-nav .dot` removes
+     the decorative bead images that strand at line-wrap points on narrow widths.
+     `.footer-shortcuts` drops the keyboard-shortcut line on touch devices. */
   .left,
   .leftnav,
   .instrument-panel,
   #instrument-panel,
   .snn-panel,
-  #snn-panel {
+  #snn-panel,
+  #debug-toggle-ui,
+  .footer-nav .dot,
+  .footer-shortcuts {
     display:none !important;
   }
   .shell {

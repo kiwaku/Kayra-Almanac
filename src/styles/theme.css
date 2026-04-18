@@ -18,7 +18,7 @@
 html, body {
   margin:0 auto;
   padding:0 10px;
-  max-width:880px;
+  max-width: min(880px, 100vw - 32px);
   background:var(--bg);
   color:#111;
   font-family:var(--sans);
@@ -34,17 +34,38 @@ a {
   color:var(--link);
   text-decoration:underline;
 }
-a:hover {
-  color:var(--link-hover);
-}
 a:visited {
   color:var(--link-visited);
 }
+a:active {
+  color:var(--link-hover);
+}
+/* Hover delta only on devices with a real hover+pointer — decision 03 contradiction #11 */
+@media (hover: hover) and (pointer: fine) {
+  a:hover {
+    color:var(--link-hover);
+  }
+}
 
-/* Accessibility: visible focus */
-:focus {
-  outline:1px dotted #000;
+/* Accessibility: visible focus — decision 03 §15 */
+:focus-visible {
+  outline:2px solid #0000EE;
   outline-offset:2px;
+}
+
+/* Visually hide the MathML accessibility layer emitted by KaTeX. The vendored
+   KaTeX stylesheet normally provides this; restate it defensively so pages
+   still reflow correctly when that stylesheet is blocked (ad-blockers, SRI
+   mismatches, offline users). WebKit otherwise renders <math> natively and
+   wide formulae overflow the viewport. */
+.katex-mathml {
+  position:absolute;
+  clip:rect(1px, 1px, 1px, 1px);
+  clip-path:inset(50%);
+  height:1px;
+  width:1px;
+  overflow:hidden;
+  white-space:nowrap;
 }
 
 /* Typography - tight, bold italics for headers */
@@ -762,17 +783,60 @@ details.raw code {
   padding: 0;
 }
 
-/* Mobile */
-@media (max-width:768px) {
+/* Mobile — decisions 02 §1/§8 and 03 §5.
+   768 is the desktop boundary (at/above = desktop), so mobile rules fire
+   strictly below 768 via 767.98 to match the `(min-width: 768px)` gate in
+   the SNN IIFE. */
+@media (max-width:767.98px) {
   body {
     padding:0 8px;
+    line-height:1.5;
+  }
+  p, li {
+    line-height:1.5;
+  }
+  /* Hide desktop chrome on mobile — decisions 02 §8 (LeftNav) and §10 (InstrumentPanel) */
+  .left,
+  .leftnav,
+  .instrument-panel,
+  #instrument-panel,
+  .snn-panel,
+  #snn-panel {
+    display:none !important;
   }
   .shell {
     grid-template-columns:1fr;
     gap:8px;
   }
-  .left {
-    margin-bottom:8px;
+  /* Grid items need min-width:0 so long inline content can't push the column
+     wider than the viewport (WCAG 1.4.10 Reflow at 320 CSS px). */
+  .shell,
+  .shell > .content,
+  .content {
+    min-width:0;
+  }
+  .content,
+  .abstract {
+    overflow-wrap:break-word;
+    word-wrap:break-word;
+  }
+  /* Essential 2D content (tables, code blocks) scrolls within its block,
+     not the page — WCAG 1.4.10 exception. */
+  .content table,
+  .abstract table {
+    display:block;
+    overflow-x:auto;
+    max-width:100%;
+  }
+  .content pre,
+  .abstract pre {
+    max-width:100%;
+    overflow-x:auto;
+  }
+  /* Inline-flex tag strips must wrap on mobile or they overflow horizontally */
+  .meta .tags,
+  .tags {
+    flex-wrap:wrap;
   }
   .topnav {
     display:flex;
@@ -790,6 +854,35 @@ details.raw code {
   }
   .numlist .block::before {
     font-size:16px;
+  }
+  /* Standalone tap targets — decision 03 §3 (44×44 CSS px) */
+  .footer-nav a,
+  .brand a,
+  .back-to-index a,
+  details.raw > summary,
+  details.capability > summary {
+    display:inline-block;
+    min-height:44px;
+    min-width:44px;
+    padding:10px 8px;
+    line-height:24px;
+    box-sizing:border-box;
+  }
+  /* Keep footer dots sized in line with the taller tap targets */
+  .footer-nav .dot {
+    vertical-align:middle;
+  }
+}
+
+/* Honor reduced-motion universally — decision 01 §4 (16) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

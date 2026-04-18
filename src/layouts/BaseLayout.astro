@@ -126,7 +126,7 @@ const { title = 'Kayra — Workshop Almanac', rawMarkdown } = Astro.props;
         transform-origin: top left;
       }
 
-      @media (max-width: 900px) {
+      @media (max-width: 767.98px) {
         .snn-panel { display: none; }
       }
 
@@ -321,6 +321,13 @@ const { title = 'Kayra — Workshop Almanac', rawMarkdown } = Astro.props;
 // ============================================================
 
 (function() {
+  // Desktop-only gate — decision 02 §9. Skip parsing the SNN panel on mobile.
+  window.__snnRan = false;
+  if (typeof window.matchMedia === 'function' && !window.matchMedia('(min-width: 768px)').matches) {
+    return;
+  }
+  window.__snnRan = true;
+
   // Browser metrics
   window.__instrumentMetrics = {
     vx_norm: 0,

@@ -752,64 +752,75 @@
   function positionInstrumentPanel() {
     const panel = document.getElementById('instrument-panel');
     const shell = document.querySelector('.shell') as HTMLElement | null;
-    const header = document.querySelector('.header') as HTMLElement | null;
+    const snnPanel = document.getElementById('snn-panel') as HTMLElement | null;
+    const page = document.body as HTMLBodyElement | null;
 
     if (!panel || !shell) {
       console.warn('InstrumentPanel: positioning elements not found');
       return;
     }
 
-    const rect = shell.getBoundingClientRect();
-
-    // Recover the shell's natural (un-shifted) left by undoing the marginLeft
-    // we applied on the previous call. This is the oscillation fix: computing
-    // shift = desiredLeft - rect.left against an already-shifted rect causes each
-    // call to fight the previous one. Undoing the previous shift first means
-    // naturalLeft is stable for a given viewport width — no oscillation.
-    const prevMarginLeft = parseFloat(shell.style.marginLeft) || 0;
-    const naturalLeft = rect.left - prevMarginLeft;
-    const naturalRight = naturalLeft + rect.width;
-
+    const instrumentPanel = panel as HTMLElement;
     const vw = window.innerWidth;
-    const shellWidth = rect.width;
-    const panelWidth = panel.offsetWidth;
-
-    // Responsive gap — same formula as original code.
-    const padding = Math.min(80, Math.max(16, vw * 0.04));
-
-    // Absolute minimum left edge for the shell (keeps it off the viewport edge).
+    const isMobile = window.matchMedia('(max-width: 767.98px)').matches;
     const minLeft = 16;
+    const minGap = 16;
+    const idealGap = Math.min(80, Math.max(minGap, vw * 0.04));
 
-    // Can the panel fit beside the shell with the shell pushed to minLeft?
-    // Left blank space compresses before the panel drops to overlay.
-    if (minLeft + shellWidth + minLeft + panelWidth <= vw) {
-      // Center [shell + padding + panel] as a visual unit.
-      // Clamp so shell never goes past minLeft (left margin compresses first).
-      const totalVisualWidth = shellWidth + padding + panelWidth;
-      const desiredLeft = Math.max(minLeft, vw / 2 - totalVisualWidth / 2);
+    function resetPageShift() {
+      if (!page) return;
+      page.style.left = '0px';
+      page.style.position = '';
+    }
 
-      const newMarginLeft = desiredLeft - naturalLeft;
-      shell.style.marginLeft = `${newMarginLeft}px`;
-      if (header) header.style.marginLeft = `${newMarginLeft}px`;
+    function setDesktopChromeVisible(visible: boolean) {
+      instrumentPanel.style.display = visible ? '' : 'none';
+      if (snnPanel) snnPanel.style.display = visible ? '' : 'none';
+    }
 
-      panel.style.position = 'fixed';
-      // Anchor panel to the natural (unshifted) shell right edge + padding.
-      // The shell shifts left independently; the panel stays at the natural right.
-      // This preserves the original breathing gap regardless of resize count.
-      panel.style.left = `${Math.min(naturalRight + padding, vw - panelWidth)}px`;
-      panel.style.right = 'auto';
-      panel.style.top = `${window.innerHeight * 0.1}px`;
-      panel.classList.remove('is-overlay');
+    resetPageShift();
+
+    if (isMobile) {
+      setDesktopChromeVisible(false);
+      instrumentPanel.classList.remove('is-overlay');
+      return;
+    }
+
+    setDesktopChromeVisible(true);
+
+    const panelWidth = instrumentPanel.offsetWidth;
+    const baseRect = shell.getBoundingClientRect();
+
+    // Center the page + right-side instrumentation as a single visual unit.
+    // Shifting the page cluster left preserves shell/content widths; shifting the
+    // shell directly was inflating the measured box and made the fallback brittle.
+    const desiredShift = (panelWidth + idealGap) / 2;
+    const maxShift = Math.max(0, baseRect.left - minLeft);
+    const appliedShift = Math.min(desiredShift, maxShift);
+
+    if (page) {
+      page.style.position = 'relative';
+      page.style.left = `${-appliedShift}px`;
+    }
+
+    const shiftedRect = shell.getBoundingClientRect();
+    const availableRight = vw - shiftedRect.right;
+    const actualGap = Math.min(idealGap, availableRight - panelWidth);
+
+    if (actualGap >= minGap) {
+      instrumentPanel.style.position = 'fixed';
+      instrumentPanel.style.left = `${shiftedRect.right + actualGap}px`;
+      instrumentPanel.style.right = 'auto';
+      instrumentPanel.style.top = `${Math.max(40, window.innerHeight * 0.1)}px`;
+      instrumentPanel.classList.remove('is-overlay');
     } else {
-      // Viewport too narrow — overlay fallback.
-      panel.style.position = 'fixed';
-      panel.style.left = 'auto';
-      panel.style.right = '10px';
-      panel.style.top = '60%';
-      panel.classList.add('is-overlay');
-
-      shell.style.marginLeft = '0';
-      if (header) header.style.marginLeft = '0';
+      // Once the panel cannot maintain a minimum gap, hide the right-side chrome
+      // entirely instead of letting it sit on top of the main content.
+      resetPageShift();
+      setDesktopChromeVisible(false);
+      instrumentPanel.style.left = 'auto';
+      instrumentPanel.style.right = 'auto';
+      instrumentPanel.classList.remove('is-overlay');
     }
   }
 

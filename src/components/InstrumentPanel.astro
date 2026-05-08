@@ -751,81 +751,58 @@
 
   function positionInstrumentPanel() {
     const panel = document.getElementById('instrument-panel');
-
-    // ============================================================
-    // REFACTOR 2024: Anchor to .shell instead of .content
-    // ROLLBACK: Replace this block with the old code (see git history or backup)
-    // ============================================================
     const shell = document.querySelector('.shell') as HTMLElement | null;
+    const header = document.querySelector('.header') as HTMLElement | null;
 
     if (!panel || !shell) {
       console.warn('InstrumentPanel: positioning elements not found');
       return;
     }
 
-    const rect = shell.getBoundingClientRect();
-    const spaceRight = window.innerWidth - rect.right;
+    // Always reset margin before measuring so we read the natural (un-shifted)
+    // shell position. Without this, each call reads the position from the
+    // previous call's shift and the marginLeft oscillates on every resize event.
+    shell.style.marginLeft = '';
+    if (header) header.style.marginLeft = '';
 
-    // Responsive padding: 4% of viewport, min 16px, max 80px
-    const padding = Math.min(80, Math.max(16, window.innerWidth * 0.04));
+    const rect = shell.getBoundingClientRect(); // natural position
+    const shellWidth = rect.width;
+    const panelWidth = panel.offsetWidth;
+    const vw = window.innerWidth;
 
-    // Check if there's enough room to the right
-    if (spaceRight >= panel.offsetWidth + padding) {
-      // Position to the right of shell (which includes nav + content)
-      panel.style.position = 'fixed';
-      panel.style.left = `${rect.right + padding}px`;
-      panel.style.right = 'auto';
+    // Minimum left edge we'll push the shell to (keeps content from kissing the
+    // viewport edge). Minimum gap between shell right edge and panel left edge.
+    const MIN_SHELL_LEFT = 8;
+    const GAP = 20;
 
-      // Position at 10% from viewport top
-      const y = window.innerHeight * 0.1;
-      panel.style.top = `${y}px`;
+    // Minimum viewport width at which the panel can sit beside the shell
+    // (shell flush-left at MIN_SHELL_LEFT, panel right at viewport edge).
+    const minRequired = MIN_SHELL_LEFT + shellWidth + GAP + panelWidth;
 
-      panel.classList.remove('is-overlay');
+    if (vw >= minRequired) {
+      // Ideal: center [shell + gap + panel] as a visual unit.
+      // When viewport is tight, clamp to MIN_SHELL_LEFT rather than dropping
+      // the panel — left blank space shrinks before the panel is displaced.
+      const totalVisualWidth = shellWidth + GAP + panelWidth;
+      const desiredShellLeft = Math.max(MIN_SHELL_LEFT, vw / 2 - totalVisualWidth / 2);
 
-      // ============================================================
-      // AUTO-CENTERING: Center entire visual block [shell + panel]
-      // ============================================================
-      const header = document.querySelector('.header') as HTMLElement | null;
-
-      // Calculate total visual width
-      const totalVisualWidth = rect.width + padding + panel.offsetWidth;
-
-      // Calculate shift needed to center the visual block at viewport 50%
-      const viewportCenter = window.innerWidth / 2;
-      const visualBlockCenter = totalVisualWidth / 2;
-      const currentShellLeft = rect.left;
-
-      // Shift = where we want the visual block to start
-      const desiredShellLeft = viewportCenter - visualBlockCenter;
-      const shift = desiredShellLeft - currentShellLeft;
-
-      // Apply shift to shell and header
+      const shift = desiredShellLeft - rect.left;
       shell.style.marginLeft = `${shift}px`;
-      if (header) {
-        header.style.marginLeft = `${shift}px`;
-      }
-      // ============================================================
-      // END AUTO-CENTERING
-      // ============================================================
-    // ============================================================
-    // END REFACTOR
-    // ============================================================
+      if (header) header.style.marginLeft = `${shift}px`;
+
+      panel.style.position = 'fixed';
+      panel.style.left = `${desiredShellLeft + shellWidth + GAP}px`;
+      panel.style.right = 'auto';
+      panel.style.top = `${window.innerHeight * 0.1}px`;
+      panel.classList.remove('is-overlay');
     } else {
-      // Fallback overlay position
+      // Viewport too narrow to show panel beside shell — overlay fallback.
+      // Margins already reset to '' above.
       panel.style.position = 'fixed';
       panel.style.left = 'auto';
       panel.style.right = '10px';
       panel.style.top = '60%';
-
       panel.classList.add('is-overlay');
-
-      // Reset margins when panel is in overlay mode
-      const header = document.querySelector('.header') as HTMLElement | null;
-
-      shell.style.marginLeft = '0';
-      if (header) {
-        header.style.marginLeft = '0';
-      }
     }
   }
 

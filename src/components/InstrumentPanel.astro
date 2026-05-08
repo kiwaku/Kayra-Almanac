@@ -759,50 +759,57 @@
       return;
     }
 
-    // Always reset margin before measuring so we read the natural (un-shifted)
-    // shell position. Without this, each call reads the position from the
-    // previous call's shift and the marginLeft oscillates on every resize event.
-    shell.style.marginLeft = '';
-    if (header) header.style.marginLeft = '';
+    const rect = shell.getBoundingClientRect();
 
-    const rect = shell.getBoundingClientRect(); // natural position
+    // Recover the shell's natural (un-shifted) left by undoing the marginLeft
+    // we applied on the previous call. This is the oscillation fix: computing
+    // shift = desiredLeft - rect.left against an already-shifted rect causes each
+    // call to fight the previous one. Undoing the previous shift first means
+    // naturalLeft is stable for a given viewport width — no oscillation.
+    const prevMarginLeft = parseFloat(shell.style.marginLeft) || 0;
+    const naturalLeft = rect.left - prevMarginLeft;
+
+    const vw = window.innerWidth;
     const shellWidth = rect.width;
     const panelWidth = panel.offsetWidth;
-    const vw = window.innerWidth;
 
-    // Minimum left edge we'll push the shell to (keeps content from kissing the
-    // viewport edge). Minimum gap between shell right edge and panel left edge.
-    const MIN_SHELL_LEFT = 8;
-    const GAP = 20;
+    // Responsive gap — same formula as original code.
+    const padding = Math.min(80, Math.max(16, vw * 0.04));
 
-    // Minimum viewport width at which the panel can sit beside the shell
-    // (shell flush-left at MIN_SHELL_LEFT, panel right at viewport edge).
-    const minRequired = MIN_SHELL_LEFT + shellWidth + GAP + panelWidth;
+    // Absolute minimum left edge for the shell (keeps it off the viewport edge).
+    const minLeft = 16;
 
-    if (vw >= minRequired) {
-      // Ideal: center [shell + gap + panel] as a visual unit.
-      // When viewport is tight, clamp to MIN_SHELL_LEFT rather than dropping
-      // the panel — left blank space shrinks before the panel is displaced.
-      const totalVisualWidth = shellWidth + GAP + panelWidth;
-      const desiredShellLeft = Math.max(MIN_SHELL_LEFT, vw / 2 - totalVisualWidth / 2);
+    // Can the panel fit beside the shell with the shell pushed to minLeft?
+    // This is the "blank space priority" fix: the threshold is now based on
+    // the optimal shell position, not the natural centered one. Left blank space
+    // compresses before the panel drops to overlay.
+    if (minLeft + shellWidth + minLeft + panelWidth <= vw) {
+      // Center [shell + padding + panel] as a visual unit.
+      // Clamp so shell never goes past minLeft (left margin compresses first).
+      const totalVisualWidth = shellWidth + padding + panelWidth;
+      const desiredLeft = Math.max(minLeft, vw / 2 - totalVisualWidth / 2);
 
-      const shift = desiredShellLeft - rect.left;
-      shell.style.marginLeft = `${shift}px`;
-      if (header) header.style.marginLeft = `${shift}px`;
+      const newMarginLeft = desiredLeft - naturalLeft;
+      shell.style.marginLeft = `${newMarginLeft}px`;
+      if (header) header.style.marginLeft = `${newMarginLeft}px`;
 
       panel.style.position = 'fixed';
-      panel.style.left = `${desiredShellLeft + shellWidth + GAP}px`;
+      // Clamp panel's right edge to viewport — when the gap compresses at tight
+      // widths the responsive padding may be too large, so we cap it.
+      panel.style.left = `${Math.min(desiredLeft + shellWidth + padding, vw - panelWidth)}px`;
       panel.style.right = 'auto';
       panel.style.top = `${window.innerHeight * 0.1}px`;
       panel.classList.remove('is-overlay');
     } else {
-      // Viewport too narrow to show panel beside shell — overlay fallback.
-      // Margins already reset to '' above.
+      // Viewport too narrow — overlay fallback.
       panel.style.position = 'fixed';
       panel.style.left = 'auto';
       panel.style.right = '10px';
       panel.style.top = '60%';
       panel.classList.add('is-overlay');
+
+      shell.style.marginLeft = '0';
+      if (header) header.style.marginLeft = '0';
     }
   }
 

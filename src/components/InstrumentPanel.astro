@@ -768,6 +768,7 @@
     // naturalLeft is stable for a given viewport width — no oscillation.
     const prevMarginLeft = parseFloat(shell.style.marginLeft) || 0;
     const naturalLeft = rect.left - prevMarginLeft;
+    const naturalRight = naturalLeft + rect.width;
 
     const vw = window.innerWidth;
     const shellWidth = rect.width;
@@ -780,9 +781,7 @@
     const minLeft = 16;
 
     // Can the panel fit beside the shell with the shell pushed to minLeft?
-    // This is the "blank space priority" fix: the threshold is now based on
-    // the optimal shell position, not the natural centered one. Left blank space
-    // compresses before the panel drops to overlay.
+    // Left blank space compresses before the panel drops to overlay.
     if (minLeft + shellWidth + minLeft + panelWidth <= vw) {
       // Center [shell + padding + panel] as a visual unit.
       // Clamp so shell never goes past minLeft (left margin compresses first).
@@ -794,9 +793,10 @@
       if (header) header.style.marginLeft = `${newMarginLeft}px`;
 
       panel.style.position = 'fixed';
-      // Clamp panel's right edge to viewport — when the gap compresses at tight
-      // widths the responsive padding may be too large, so we cap it.
-      panel.style.left = `${Math.min(desiredLeft + shellWidth + padding, vw - panelWidth)}px`;
+      // Anchor panel to the natural (unshifted) shell right edge + padding.
+      // The shell shifts left independently; the panel stays at the natural right.
+      // This preserves the original breathing gap regardless of resize count.
+      panel.style.left = `${Math.min(naturalRight + padding, vw - panelWidth)}px`;
       panel.style.right = 'auto';
       panel.style.top = `${window.innerHeight * 0.1}px`;
       panel.classList.remove('is-overlay');

@@ -8,6 +8,12 @@ featured: false
 badges: ["ai/ml"]
 summary: "<strong>From working system to peer-reviewable paper</strong> — the three-week sprint that turned the zero-copy NIDS of Layer II into a defensible research artifact. Real-data retraining, honest baselines, and a novelty-detection head — plus a pre-registered pivot that retired the spiking-network direction on evidence.<ul><li>CIC-IDS2017 retrain with a two-split eval (ordinary + unseen-sub-attack OOD)</li><li>Head-to-head against MLP4NIDS (Rosay 2021): −0.029 macro-F1 at 1/22 the parameters</li><li>Mahalanobis++ OOD head: zero-day AUROC 0.56 → 0.97, +6 µs at 4.8 Mpps</li><li>SNN direction sunset on a pre-registered clause after a two-phase miss</li></ul>"
 metrics: { dataset_size: "CIC-IDS2017" }
+artifacts:
+  diagram: "/artifacts/ferrum-iii/fig3_auroc_grid.png"
+images:
+  - "/artifacts/ferrum-iii/fig4_auroc_extended.png"
+  - "/artifacts/ferrum-iii/fig2_kernel_microbench_projection.png"
+  - "/artifacts/ferrum-iii/fig1_live_latency_timeseries.png"
 related: ["ferrum-ii", "ferrum-i", "crest-snn"]
 ---
 
@@ -138,7 +144,23 @@ The deployed novelty head scores the *frozen* classifier with no retraining. Fou
 
 On the Friday DDoS-LOIT variant the closed-set head confidently mislabels as Probe, Mahalanobis++-ℓ₂ lifts AUROC from 0.73 to 0.93. **Energy (Liu et al., 2020) was rejected** — it under-performs the free max-softmax baseline on every corpus tested, for a structural reason the paper isolates: the final layer's null space is 29-dimensional, and the OOD signal lives largely in the component Energy discards (corroborated by retraining with LogitNorm, which suppresses the logit-magnitude pathway yet leaves a 29-point gap). Three independent detector families (ViM, GradNorm, DeepSVDD) and a 3-seed replication confirm the Mahalanobis result is not selection bias.
 
+<div class="diagram-section">
+  <a href="/artifacts/ferrum-iii/fig3_auroc_grid.png" class="lightbox">
+    <img src="/artifacts/ferrum-iii/fig3_auroc_grid.png" alt="AUROC by detector and corpus — MSP, Energy, Maha-raw, and Mahalanobis++-ℓ₂ across the zero-day holdout, test_ddos, val_web_attack, and test_bot" />
+  </a>
+</div>
+
+**Figure 1.** AUROC by detector × corpus. Mahalanobis++-ℓ₂ dominates on the two non-saturated corpora (zero-day, test_ddos); where MSP already saturates the ceiling, no detector has measurable headroom.
+
 The head costs **4,628 bytes** of constant memory (per-class means + a pooled precision matrix) on top of the 13 KB of MLP weights, and gates only the post-MLP distance block — so the argmax path is byte-identical with the detector on or off. Live-validated through the Mellanox DAC pair at saturation (4.8 Mpps sustained), the end-to-end overhead is **+6.06 µs mean / +3.24 µs p99** — comfortably inside the pre-registered 2× latency budget. The deployment claim: *first NIDS computing a penultimate-Mahalanobis OOD signal entirely on a NIC-fed GPU, fused into the same kernel that produces the prediction, under a microsecond marginal budget.*
+
+<div class="diagram-section">
+  <a href="/artifacts/ferrum-iii/fig5_live_latency_saturating.png" class="lightbox">
+    <img src="/artifacts/ferrum-iii/fig5_live_latency_saturating.png" alt="Live per-interval mean and p99 latency, OOD gated off vs on, at saturating 4.8 Mpps" />
+  </a>
+</div>
+
+**Figure 2.** Live latency at saturation (4.8 Mpps), OOD gated off vs on. The +6.06 µs mean / +3.24 µs p99 overhead reads as a constant offset, not a slope change.
 
 ---
 

@@ -1,0 +1,78 @@
+---
+title: "RFID: 75 Minutes, No Notes, Two Weeks Later"
+date: "2026-05-18"
+tags: ["rf", "hardware", "rfid", "proxmark"]
+images: []
+anomaly: false
+---
+
+I cloned a Paradox prox card onto a blank in about 75 minutes one afternoon, and it was completely uneventful — modern Proxmark tooling has matured to the point where an LF Paradox/T55x7 clone is a self-verifying one-liner. The part worth writing down is that I *didn't* write anything down. When I went to reconstruct the session two weeks later, the only surviving record was the auto-generated logs the tool happened to leave behind. The clone is the boring part; the notes-hygiene failure is the lesson.
+
+<br />
+
+### The boring part (which is the point)
+
+Proxmark3 Easy, Iceman firmware `master/5e378c1-suspect`, freshly flashed that morning. Target: a Paradox LF prox card, FSK2a-modulated at 125 kHz, **FC 8 / CN 52164**, identified via `lf search` → `lf paradox reader`. Blank: a standard T55x7. The clone:
+
+```
+pm3 --> lf paradox clone --fc 8 --cn 52164
+[+]  00 | 00107060
+[+]  01 | 0F555555
+[+]  02 | 595A59AA
+[+]  03 | 5655AAAA
+[+] Data written and verified
+[+] Done!
+```
+
+Four T55x7 blocks written and **self-verified by the tool**, confirmed by re-running `lf paradox read`. Paradox-on-T55x7 is a solved problem; the tooling does the work. The single attempt that mattered just worked. That's exactly why there was nothing to react to, and therefore nothing that prompted me to take a note.
+
+---
+
+<br />
+
+### The actual failure: no contemporaneous record
+
+No notes were taken during the session. Two weeks later, wanting to write it up, the only artifacts that existed were:
+
+- **`~/.proxmark3/logs/`** — 38 auto-generated session log files from that afternoon, including the one that captured the successful clone (`log_20260518203248.txt`) and the one with the hardware/antenna-tune output (`log_20260518201515.txt`: LF 24.84 V @ 125 kHz, HF 22.95 V @ 13.56 MHz).
+- **`~/.proxmark3/history.txt`** — a 40-command shell history.
+
+That history is the only *experiential* record of the session, and its shape tells the story better than memory could have:
+
+```
+hw version → hw status → hw tune          # open with hardware checks
+lf search → hf search (×2)                # sweep both bands
+lf paradox clone → lf paradox read        # identify Paradox, clone, verify
+lf t55xx detect --all / -p 51243648       # fingerprint the blank
+hf 14a/14b/15 reader, lf em 4x05, hitag   # long exploratory tail
+```
+
+Open with hardware sanity, sweep LF+HF, identify and clone the Paradox, verify, then a long tail of "what *else* is this card and this blank capable of" — EM4x05, Hitag, the whole 13.56 MHz HF reader sweep (all negative, as expected for an LF-only Paradox). I could reconstruct the session faithfully *only because the tool is chatty by default.* That was luck, not discipline.
+
+---
+
+<br />
+
+### The lesson is narrower than "always take notes"
+
+The real distinction is about the tooling's default:
+
+- **Durable-by-default tooling carries its own history.** A git repo, a paper writeup, a notebook — the work *is* the record. You'd have to go out of your way to lose the trail.
+- **Ephemeral-by-default tooling does not.** A REPL, a debugger, a hardware CLI like the Proxmark client — the session evaporates when you close it unless something captured it. Here, the Proxmark's auto-logging silently saved me; nothing about my own habits would have.
+
+The fix isn't willpower, it's a starting ritual: for any session in the ephemeral class, open with `script(1)` capture or a dated notes file *before* the first command. The cost is ten seconds at the start; the alternative is reconstructing from log archaeology two weeks later and hoping the tool was talkative.
+
+One concrete gap that even the logs can't fix: **no `.bin` / `.eml` / `.json` dump of the card was ever saved** — only the live clone was run, never `lf t55xx dump`. If the original card is lost, the only re-clone path is the raw block data above (or just re-running the same `lf paradox clone` line). A 30-second dump would have produced a binary that re-clones indefinitely without the original present. Same failure mode as the missing notes: the durable artifact wasn't created because the live action worked.
+
+---
+
+<br />
+
+### Sources
+
+Primary sources read for this entry:
+
+- `~/hephaestus_ground_truth/30_PROJECTS/project-rfid-paradox/README.md` — the after-the-fact technical writeup (hardware, antenna tune, target/blank, block data, "what was NOT saved")
+- `~/.proxmark3/logs/log_20260518203248.txt` — the successful-clone log (block-by-block output)
+- `~/.proxmark3/logs/log_20260518201515.txt` — first-session log (firmware version, `hw tune` antenna voltages)
+- `~/.proxmark3/history.txt` — the 40-command session history (the experiential record)

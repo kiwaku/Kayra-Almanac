@@ -1,0 +1,79 @@
+---
+title: "Ferrum III: Picking a Baseline You Can't Get Dunked On"
+date: "2026-04-20"
+tags: ["ai", "security", "ferrum", "baselines", "cic-ids2017", "methodology", "hephaestus"]
+project: ferrum-iii
+images: []
+anomaly: false
+---
+
+The most reviewer-resistant part of [Ferrum III](/projects/ferrum-iii)'s Stage 2 isn't the result — it's the *choice of baseline*. The §5.5 head-to-head pits Ferrum's on-device `15→64→32→4` MLP against MLP4NIDS (Rosay et al., 2021), and Ferrum **loses by 2.9 points of macro-F1**. Reporting that loss plainly, against a baseline chosen specifically so it can't be waved away, is worth more than any inflated win.
+
+<br />
+
+### Why this baseline and not a friendlier one
+
+Picking a baseline is a positioning decision, and most of the ways a NIDS comparison gets "dunked on" by reviewers are foreclosed by choosing MLP4NIDS:
+
+- **Public, MIT-licensed code** (`github.com/ArnaudRosay/mlp4nids`). A reviewer can re-run it. No "you claim a comparison you can't reproduce."
+- **Same dataset** (CIC-IDS2017). No cross-dataset apples-to-oranges where a favorable benchmark hides the gap.
+- **A cite-able leakage caveat.** CIC-IDS2017 has known temporal-leakage issues (Engelen et al., 2021) that inflate naive day-based test scores. Citing Engelen, and running an intra-session temporal split, pre-empts the "your numbers are leakage-inflated" critique with a documented answer rather than a defensive one.
+
+A baseline that's reproducible, same-dataset, and leakage-aware removes the three easiest reviewer attacks before they're made.
+
+---
+
+<br />
+
+### The honest report
+
+MLP4NIDS was re-implemented in PyTorch and trained on *Ferrum's* 15-feature Split A under Rosay's published hyperparameters. Numbers from the run's `manifest.json` / `train.log`:
+
+| | ferrum-cic-v1 (shipped) | MLP4NIDS (rerun) | Δ |
+|---|---|---|---|
+| Architecture | 15→64→32→4 ReLU | 15→256→256→4 SELU+Dropout | — |
+| Parameters | 3,236 | 70,916 | **21.9×** |
+| Training wall (P40) | ≈9 min | ≈54 min | 6.0× |
+| **Test macro-F1** | **0.896** | **0.925** | **+0.029** |
+| — Brute-force/Exploit F1 | 0.613 | 0.715 | **+0.102** |
+
+MLP4NIDS wins by +0.029 macro-F1, with the entire gap concentrated on the minority Brute-force/Exploit class (+0.102). Both clear the pre-registered §2.6 target of 0.88. The gap is real and disclosed — not iterated away by tuning the training loop until it disappears.
+
+> A note on numbers: the artifact is authoritative here. `manifest.json` records MLP4NIDS `macro_f1 = 0.925048`, and `train.log` closes with `test_f1=0.9250` (the `best_macro_f1 = 0.9499` in the same file is the *validation* peak, not the test score). The deployed gap is +0.029.
+
+---
+
+<br />
+
+### Negative-result honesty as positioning
+
+The point of the comparison is not "we win" — it's *where each model sits*. A larger closed-set MLP captures ~10 points of minority-class F1 that the on-device model doesn't. But it carries 22× the parameters and would not fit in the GPU constant memory the line-rate classify kernel depends on. So the §5.5 prose closes with the "in short" framing: you don't beat MLP4NIDS on test accuracy; you beat it on every other deployment axis — 13 KB weights, constant-memory residency, line-rate on-device inference — at acceptable accuracy.
+
+MLP4NIDS is the better *classifier* when the parameter budget allows it. ferrum-cic-v1 is the one that fits the on-path architecture. The choice between them is a deployment-budget choice, and a real deployment with a larger memory budget could drop MLP4NIDS in and recover the 3-point gap — at the cost of the constant-memory property the runtime relies on. That's the honest report, and reviewers respect the honest report far more than a win claimed where the win isn't clean.
+
+---
+
+<br />
+
+### Decision log
+
+| Option | Verdict | Reason |
+|--------|---------|--------|
+| Compare against a higher-feature SOTA on a different dataset | Rejected | Cross-dataset comparison invites "apples to oranges"; not reproducible by reviewers |
+| Report only the favorable Split A weighted-F1 (0.99) | Rejected | Hides the minority-class gap; the kind of selective number reviewers punish |
+| **MLP4NIDS, same dataset, public code, report the −0.029 loss** | **Selected** | Reproducible, leakage-aware, and positions Ferrum honestly in deployment-budget space |
+
+**Lesson:** choose the baseline that makes your comparison *un-dismissable*, then report the loss as plainly as you'd report a win. Defensible negative results don't attract the scrutiny that inflated wins do.
+
+---
+
+<br />
+
+### Sources
+
+Primary sources read for this entry (under `~/hephaestus_ground_truth/30_PROJECTS/project-wire-to-inference/`):
+
+- `paper.md` §5.5 (Split A table + MLP4NIDS head-to-head Table A-bis) and §6 (baseline citations)
+- baseline artifact `results/stage2/2026-04-20_ferrum-cic-splitA-sqrt/baselines/mlp4nids/{manifest.json, train.log}` — `macro_f1 = 0.925048`, `test_f1 = 0.9250`
+- `FERRUM-III-REPORT.md` §4.4 + §9.4 (the §5.5 frame)
+- commits `669296c` (three-baseline plan), `9b4e65a` (Rosay 2021 + Engelen 2021 citations), `ceac181` (head-to-head, honest report), `e69b50b` ("in short" summary)

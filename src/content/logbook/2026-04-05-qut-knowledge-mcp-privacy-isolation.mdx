@@ -1,0 +1,125 @@
+---
+title: "Qut: The Knowledge Graph Is Hermes-Only"
+date: "2026-04-05"
+tags: ["ai", "hermes", "knowledge-graph", "mcp", "privacy", "hephaestus"]
+project: qut
+images: []
+anomaly: false
+---
+
+A two-day refactor (Apr 5–6) reworked how Hermes retrieves from the personal knowledge graph — six numbered phases, R1 through R6. Five of them were engineering: embedding the node log, validating a query-side router, hybrid retrieval, a progressive drill-down MCP, an integration test. The sixth was not a performance fix. **R6 removed the Knowledge MCP from Claude Code's tool surface and scoped it to Hermes only**, so that the 84,174-node personal graph never transits a vendor API. This entry is about R6 — the one phase that was a stance rather than an optimization.
+
+<br />
+
+### What the graph actually holds
+
+By early April the graph was **84,174 nodes** (a 129.3 MB vector index) and ~143,660 edges. Browsing the categories:
+
+| Category | Nodes |
+|----------|-------|
+| entity | 82,373 |
+| topic | ~1,470 |
+| search_result | ~530 |
+| finding | 20 |
+
+But the category counts undersell the sensitivity. The interesting axis is *where the nodes came from*: 82,340 from extraction, **1,060 from `openai_export`** (years of exported chat history), 926 from auto-search, plus a long tail of interest signals written by the agent itself every time I engage with a topic. This is not a codebase or a wiki. It is a private mirror of what I've read, asked, and cared about — and the edges encode inferred relationships between all of it.
+
+That framing is what makes R6 a privacy decision and not a plumbing decision.
+
+---
+
+<br />
+
+### The threat model nobody states out loud
+
+The graph was reachable from three surfaces: Hermes (the local agent), Claude Code (via an MCP server registration), and — by extension — the Anthropic API that Claude Code runs against. The first is fine. The second is the problem.
+
+An MCP server is not a passive data source. Every tool call sends its **results** back to the model so the model can reason over them. When that model is Claude Code, the model runs on Anthropic's infrastructure. So a single `search()` or `get_findings()` call against the personal graph means the matching nodes — interests, research topics, inferred connections — leave the machine and land in a vendor's request path. An authenticated, paid, well-behaved API is still a publication channel. The data is no less gone for the connection being legitimate.
+
+This is the kind of leak that doesn't look like a leak. There's no breach, no misconfiguration, no log line that says "personal data exfiltrated." It's just the system working as designed — which is exactly why it's worth a deliberate architectural call.
+
+---
+
+<br />
+
+### R6: the change
+
+The fix is small in diff and large in intent. Commit `1f9b656`:
+
+> Phase R6: Isolate Knowledge MCP to Hermes only, remove from Claude Code
+>
+> Personal knowledge graph now only accessible via local Hermes/Qwen on P40.
+> Removed from Claude Code to prevent personal data flowing to Anthropic API.
+
+Mechanically:
+
+- **R6.1** — registered the `knowledge-graph` MCP server in `~/.hermes/config.yaml` (absolute paths, `KNOWLEDGE_DB` env), cold-start timeout bumped 30 → 60s for model load.
+- **R6.2** — removed `knowledge-graph` from `~/.claude/settings.json` (its `mcpServers` block is now empty).
+- **R6.3–R6.5** — verified: `hermes mcp test` discovers all 10 tools (connected in 9.2s); `claude mcp list` confirms the graph is no longer reachable from Claude Code.
+- **R6.6** — **Repowise stays in Claude Code.** Per-project codebase context, project-scoped, no personal data — exactly the kind of thing that's safe to send to an external model.
+
+That last point matters: this isn't "trust no vendor with any tool." It's a line drawn at *which data* gets which surface. Repowise (code I'm actively working on, in a repo) goes to the API; the personal graph (a decade of private signal) does not.
+
+---
+
+<br />
+
+### Why local makes the difference
+
+The reason the isolation is even possible is that Hermes does inference locally. The retrieval rationale doc states the trade plainly:
+
+| Concern | Hermes (local) | Claude Code (Anthropic API) |
+|---------|----------------|------------------------------|
+| LLM inference | Qwen 35B on P40 — never leaves machine | Claude Opus via API |
+| MCP tool calls | Local process, local DB | Tool results sent to API |
+| Personal data | Stays on-device | Transits to Anthropic servers |
+
+The whole path stays on the LAN: P40 → Qwen → Knowledge MCP → SQLite. There is no point at which a node from the graph crosses the machine boundary. R1–R5 made that path good; R6 made it the *only* path.
+
+It helps that the retrieval refactor had already pushed all the search work onto the CPU — the query-side Semantic Router and the hybrid FTS5+KNN+rerank pipeline run at 0 VRAM (105 ms average over the R5 stress test), leaving the P40 free for Qwen inference. Local-first retrieval isn't a tax here; it's just where the compute already lives.
+
+---
+
+<br />
+
+### Verification
+
+The point of the isolation is only worth anything if both halves hold: Hermes can still reach the graph, and Claude Code genuinely can't.
+
+| Check | Result |
+|-------|--------|
+| MCP connection (Hermes) | PASS — 4033 ms (&lt;5s threshold) |
+| Tool discovery | PASS — 10/10 tools |
+| Vec index load | PASS — 84,174 vectors, 129.3 MB, 1551 ms |
+| `claude mcp list` | knowledge-graph **absent** |
+| End-to-end CLI round-trip | PASS — Hermes → Qwen → Knowledge MCP, 31.9s (Qwen-bound) |
+
+The Discord transport was still down at this point (a known, separate auth issue), so the round-trip was validated via the Hermes CLI rather than through Discord. The retrieval chain itself — the part R6 is about — works.
+
+---
+
+<br />
+
+### Decision log
+
+| Option | Verdict | Reason |
+|--------|---------|--------|
+| Keep Knowledge MCP in both Claude Code and Hermes | Rejected | Every Claude Code tool call ships personal-graph data to the Anthropic API |
+| Drop the MCP entirely, paste KB excerpts in by hand when needed | Rejected as default | Loses agent-driven retrieval; kept only as the explicit-opt-in escape hatch |
+| **Knowledge MCP in Hermes only; Repowise stays in Claude Code** | **Selected** | Personal graph stays on-device behind local Qwen; project-scoped code context still reaches the API where it's useful and safe |
+
+The standing rule that came out of it: never register personal-knowledge tools in Claude Code or any external-API agent. If a Claude Code task genuinely needs a fact from the graph, I provide it explicitly, once, rather than opening the whole graph to the request path.
+
+---
+
+<br />
+
+### Sources
+
+Primary sources read for this entry (all under `~/hephaestus_ground_truth/`):
+
+- `30_PROJECTS/project-discord-assistant/PLAN-retrieval-routing.md` — R1–R6 plan, R6 rationale table, the final summary
+- commit `1f9b656` — "Phase R6: Isolate Knowledge MCP to Hermes only" (diff + message)
+- `30_PROJECTS/project-discord-assistant/TEST-RESULTS-HERMES-INTEGRATION.md` — 84,174-vector load, 10/10 tools, category/source breakdown, CLI round-trip
+- `30_PROJECTS/project-discord-assistant/README.md` — project frame
+- memory `feedback_kb_privacy.md` — background framing only (not quoted)

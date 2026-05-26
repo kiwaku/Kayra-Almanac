@@ -1,0 +1,106 @@
+---
+title: "Tailscale on a Default-Deny Lab: the FORWARD DROP Swap"
+date: "2026-05-15"
+tags: ["security", "networking", "tailscale", "iptables", "egress", "hephaestus"]
+project: hephaestus
+images: []
+anomaly: false
+---
+
+Adding Tailscale to the lab took about three hours, but the single line worth a writeup is a one-character-of-intent change: replacing the lab's `sysctl net.ipv4.ip_forward=0` egress enforcement with `iptables -P FORWARD DROP`. The two look interchangeable. They are not — and on a subnet-routed Tailscale node, one of them silently breaks remote access while the other preserves the exact same security posture. This is the story of why the swap was necessary and why it's equivalent.
+
+<br />
+
+### The pre-existing posture
+
+The lab runs a **default-deny egress** model that's been built up over months. VMs on the internal `192.168.100.0/24` segment (vmbr2) have no default route; their only path to the internet is temporary NAT through the bastion (`192.168.100.10`), toggled per-VM by `egress-on` / `egress-off` scripts. When you're not actively letting a VM out, it can't get out.
+
+The enforcement mechanism inside `egress-off` was a kernel switch:
+
+```bash
+sysctl -w net.ipv4.ip_forward=0
+```
+
+Flip the kernel's global IP-forwarding flag off, and the bastion stops routing between its interfaces entirely. Clean, blunt, effective — and, it turns out, load-bearing in a way that collides head-on with Tailscale.
+
+---
+
+<br />
+
+### The collision
+
+The plan put a **Tailscale subnet router on the bastion** — `tailscale up --advertise-routes=192.168.100.0/24` — so that every internal VM (CUDA, kali, victim, sniffer) becomes reachable from my laptop or phone over the tailnet *without* installing Tailscale on the VMs themselves. Traffic flows phone → tailnet → bastion → vmbr2 → VM. The offensive VMs stay off the mesh entirely; only the bastion routes for them.
+
+But a subnet router forwards packets between the tailnet interface and the LAN interface — which requires `net.ipv4.ip_forward=1`, **permanently**. And there sat `egress-off`, whose whole job was to set it to `0`.
+
+The failure mode is the nasty kind: silent and intermittent. Bring up Tailscale, everything works. Later, run `egress-off` on any VM — the normal, most-of-the-time state — and `ip_forward` flips to `0`, and subnet routing dies for the *entire* tailnet. No error, no log line. Remote access to the lab just stops working, and the cause is a script that did exactly what it was written to do, two weeks ago, for an unrelated reason.
+
+---
+
+<br />
+
+### The swap
+
+The resolution separates two ideas the old design had conflated:
+
+- **`ip_forward`** is a global kernel flag: *is forwarding possible at all?*
+- **The iptables `FORWARD` chain policy** is rule-based: *which forwarding is permitted?*
+
+`egress-off` had been using the global flag to express a per-rule intent. The fix moves the enforcement to where it belongs:
+
+1. **Remove `sysctl -w net.ipv4.ip_forward=0` from `egress-off`** (original backed up to `egress-off.bak`).
+2. **Set the FORWARD chain default policy to DROP:**
+   ```bash
+   sudo iptables -P FORWARD DROP
+   ```
+3. **Make `ip_forward=1` persistent** (the installer didn't write it on this box):
+   ```bash
+   echo "net.ipv4.ip_forward = 1" | sudo tee /etc/sysctl.d/99-tailscale.conf
+   ```
+4. **Save iptables *after* Tailscale is up**, so Tailscale's own FORWARD rules are captured in the persisted set:
+   ```bash
+   sudo apt install iptables-persistent
+   sudo netfilter-persistent save
+   ```
+
+---
+
+<br />
+
+### Why it's equivalent (and why it's actually better)
+
+With `FORWARD DROP` as the default policy, **no packet is forwarded unless an explicit ACCEPT rule permits it** — regardless of the `ip_forward` flag. The lab's default-deny posture is intact:
+
+- VM internet egress is still gated by the `egress-on` ACCEPT rules. `egress-off` removes them; with the chain defaulting to DROP, removing the ACCEPT rule is sufficient to deny — the kernel flag no longer has to do that job.
+- Tailscale manages its own FORWARD rules independently (that's why step 4 saves *after* `tailscale up`), so subnet routing keeps working through the DROP policy via Tailscale's inserted ACCEPTs.
+- The kernel forward flag stays `1` permanently, so the subnet router never goes dark.
+
+The old design tied "is forwarding allowed for this VM" to a global on/off switch that also happened to control an unrelated routing function. The new design makes the two orthogonal: forwarding is always *possible*, and *allowed* only by explicit rule. That's not just compatible with Tailscale — it's a cleaner expression of the same security intent.
+
+---
+
+<br />
+
+### Decision log
+
+| Option | Verdict | Reason |
+|--------|---------|--------|
+| Keep `ip_forward=0` in `egress-off`, accept Tailscale breakage | Rejected | Subnet routing dies silently whenever a VM is in its default (egress-off) state |
+| Run Tailscale on a dedicated VM instead of the bastion | Rejected | Still depends on the bastion for DNS/routing; adds a failure point without reducing blast radius for a single-operator lab |
+| **Swap `ip_forward=0` enforcement for `iptables -P FORWARD DROP`** | **Selected** | Equivalent default-deny security, orthogonal to the kernel forward flag, compatible with Tailscale's own FORWARD rules |
+
+**Open verification item (honest):** the session closed with one box unchecked — confirming that `sudo egress-off` now leaves `ip_forward=1` as intended (the removal was made but not re-exercised end-to-end this session). Noted here rather than asserted as done.
+
+**Lesson:** when a security control is enforced by a global kernel flag, check whether that flag also governs something unrelated before you add a feature that needs it. The default-deny intent belonged in the firewall policy all along; Tailscale just forced the question.
+
+---
+
+<br />
+
+### Sources
+
+Primary sources read for this entry (under `~/hephaestus_ground_truth/`):
+
+- `30_PROJECTS/project-tailscale/LOG.md` — the "FORWARD DROP instead of ip_forward=0" decision, the executed commands, and the verification table
+- `30_PROJECTS/project-tailscale/PLAN.md` — architecture decision (bastion as subnet router) and the egress-on/off interaction note
+- `GROUND_TRUTH.txt` §egress control plane + `CLAUDE.md` (lab root) — the pre-existing default-deny egress model the swap had to preserve

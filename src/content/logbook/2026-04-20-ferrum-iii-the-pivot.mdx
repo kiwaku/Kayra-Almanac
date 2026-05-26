@@ -1,0 +1,127 @@
+---
+title: "Ferrum III: The Pivot We Paid For in Advance"
+date: "2026-04-20"
+tags: ["ai", "security", "ferrum", "snn", "ood", "methodology", "hephaestus"]
+project: ferrum-iii
+images: []
+anomaly: false
+---
+
+Stage 3 of the [Ferrum III](/projects/ferrum-iii) sprint was supposed to be a spiking neural network — the high-novelty research angle. It isn't. On 2026-04-20 it became a novelty/out-of-distribution detector instead, and the pivot fired *automatically*, with no agonizing, because the decision to abandon SNN had been **paid for in advance**: written into a pre-registered sunset clause weeks before the first QCFS run. This is the story of a research direction killed on evidence, and why making that cheap was the actual contribution.
+
+<br />
+
+### Two angles, one of them expensive
+
+Stage 3 entered with two pre-planned directions. **SNN (Plan A)** was the high-novelty bet: no published work occupies Ferrum's exact substrate — a CUDA-kernel-only spiking NIDS on a zero-copy NIC→GPU path — so the originality ceiling was set by Ferrum itself, not by a saturated field. **Novelty/OOD (Plan B)** was the implementable bet: Mahalanobis++ is a known 2025 post-hoc method, fits the Pascal `__constant__` envelope, deployable next sprint.
+
+On 2026-04-19 (commit `3e243a9`) SNN was committed as primary. The nearest published SNN-NIDS point, HRSNN, is 12.5 MB at 1.8 ms/sample — four orders of magnitude over Ferrum's ~13 KB weight budget and two over its latency budget. The claim was genuinely uncontested. Committing to it also *foreclosed* the security-venue submission path (SNN is a good fit only at MLSys) — an acknowledged, accepted cost.
+
+The trap with a high-novelty bet is sunk cost: once you've committed, every miss invites "one more hyperparameter." So the commit came bound to an escape.
+
+---
+
+<br />
+
+### The sunset clause
+
+The pivot trigger was written as a falsifiable pre-registration (`09_ferrum_iii.md`), and it deliberately reads like a clinical-trial protocol. A QCFS-activation variant of the `15→64→32→4` MLP would be trained on the *same* Stage 2 splits as the ANN baseline, and the pivot to Plan B fires if **any** of four triggers holds:
+
+- **(a)** QCFS macro-F1 drops > 5 pp vs the ANN baseline;
+- **(b)** QCFS per-class recall on any one class drops > 7 pp;
+- **(c)** QCFS `__constant__` footprint exceeds 32 KB;
+- **(d)** QCFS per-flow classify latency exceeds 2× the ANN baseline (> 164 µs avg / 238 µs p99).
+
+The load-bearing part is the **two-phase tuning floor** — the teeth that stop the clause from firing on a lazy single sweep:
+
+- **Phase 1** — a hyperparameter grid sweep (`L ∈ {4, 8, 16}`, `T ∈ {4, 8}`, lr-schedule `{cos, const}`). A Phase-1-only miss does *not* fire the pivot.
+- **Phase 2 (mandatory if Phase 1 misses)** — a written diagnosis naming the *structural* failure mode, plus at least one structural-variant retry from a pre-approved menu (hybrid ANN-init / delta encoding / TTFS / PLIF). Budget bounded to 3–5 person-days.
+
+Only if *both* phases miss does the clause conclude SNN is genuinely infeasible. Phase 1 asks "are the knobs wrong?"; Phase 2 asks "did we misdiagnose a structural problem as a tuning one?" The pivot is evidence-based, not attempt-count-based.
+
+---
+
+<br />
+
+### Phase 1 — the grid misses, hard
+
+The five-config sweep's best result (L=8, T=4, const) against the ANN baseline (`results/qcfs-pilot/phase1/phase1_report.json`):
+
+| | ANN baseline | QCFS best | Δ |
+|---|---|---|---|
+| Test macro-F1 | 0.8956 | 0.5470 | **−34.87 pp** (7× the 5-pp trigger) |
+| Worst per-class recall | — | — | **−76.50 pp** (DoS/DDoS) |
+| `__constant__` footprint | — | 13,072 B | under 32 KB — (c) passes |
+
+Triggers (a) and (b) fired hard. The network defaulted to predicting Benign (0% Brute-force/Exploit recall), and across every config the learnable λ scalars stayed within 4% of their init — the optimizer found no informative direction in the quantized landscape. Per the clause, Phase 1 alone does not pivot. Phase 2.
+
+---
+
+<br />
+
+### Phase 2 — the structural retry also misses
+
+The sunset-clause-official Phase 2 variant was **hybrid ANN-init**: warm-start QCFS from the trained ANN weights, on the hypothesis that the optimizer just needed to land inside a class-separating region so λ only had to rescale. It was *worse* than random init (`results/qcfs-pilot/phase2/alpha_ann_init/`):
+
+| | value |
+|---|---|
+| Test macro-F1 | 0.3225 |
+| Δ vs ANN | **−57.31 pp** (worse than Phase 1) |
+| Worst per-class recall | −98.76 pp (Probe) |
+
+To verify the failure at the *category* level rather than blaming one variant, a six-variant supplementary portfolio ran beyond the mandatory α:
+
+| Variant | Test macro-F1 | Δ vs ANN | Verdict |
+|---|---|---|---|
+| hybrid ANN-init (α, official) | 0.3225 | −57.31 pp | MISS (a)+(b) |
+| KD distillation (MLP4NIDS teacher) | 0.3274 | −56.82 pp | MISS (a)+(b) |
+| surrogate-gradient BPTT | 0.3197 | −57.59 pp | MISS (a)+(b) |
+| threshold-balance T=32 | 0.7441 | −15.15 pp | MISS (a) |
+| **threshold-balance T=128** | **0.9268** | **−3.11 pp** | clears (a)+(b)+(c) — but (d) fires |
+| population code (K=3 Gaussian) | 0.3988 | −49.68 pp | MISS (a)+(b) |
+| TET loss | 0.3225 | −57.31 pp | MISS (a)+(b) |
+
+Five of six missed. The one that cleared accuracy — post-hoc threshold-balancing at T=128 — did so at **128× the ANN's hidden-layer GEMM count**, and a T-sweep showed a sharp accuracy cliff between T=16 (0.35) and T=32 (0.74) with no interior timestep that clears accuracy *and* the latency budget. That reclassifies the failure from "accuracy-structural" to "latency-structural" — but the conclusion is unchanged: **SNN's Pareto frontier on this topology and this latency envelope has no point that clears all four triggers.** The category is infeasible at this deployment budget.
+
+---
+
+<br />
+
+### The pivot, and why it was free
+
+Commit `4dd8155`, 2026-04-20: Stage 3 pivots SNN → Novelty/OOD. There was no re-litigation, no Phase 3, no "let me just try one more thing." The clause's authority was pre-registered, so when Phase 2 missed, the decision was already made.
+
+A more stubborn researcher would have run a Phase 3, found a hyperparameter combination that *just* cleared the clause, and shipped a fragile result. This is **anti-grit by design** — the discipline is committing to abandonment within a bounded effort budget, before you're emotionally invested in the outcome. The full Phase 2 portfolio is preserved under `results/qcfs-pilot/phase2/` as a citation-grade negative result; per instruction it stays out of `paper.md` §5.5 and lives in the diagnosis note.
+
+The clause also fired *cheaply* because of where it lived: the QCFS pilot ran **inside the Stage 2 retraining pipeline**, against Stage-2-quality data, by design. The pivot trigger evaluated before any expensive Stage 3 integration had been committed — so abandoning SNN cost a pilot sweep, not a built-out detector. Pre-registering *when* to test was as load-bearing as pre-registering *what* would trigger the pivot.
+
+The pivot also re-opened the security-venue path (NDSS / USENIX Sec) that the SNN commit had foreclosed — Mahalanobis++ on a NIC-fed GPU is a systems-side contribution, not a forced MLSys submission. And because the QCFS pilot's infrastructure turned out to be domain-agnostic, the entire replacement Stage 3 then landed in [a single day](/logbook/2026-04-20-ferrum-iii-stage3-in-a-day).
+
+---
+
+<br />
+
+### Decision log
+
+| Option | Verdict | Reason |
+|--------|---------|--------|
+| Ship SNN with the best clearing config (threshold-balance T=128) | Rejected | Clears accuracy at 128× GEMM — trigger (d) latency fires; "line-rate" framing dies |
+| Run a Phase 3 to find a config that just clears the clause | Rejected | Exactly the sunk-cost failure mode the pre-registration exists to prevent |
+| Pivot to Novelty/OOD per the pre-registered clause | **Selected** | Both phases missed across 7 structurally-distinct variants; abandonment was prepaid |
+
+**Lesson:** a pre-registered sunset clause with a mandatory two-phase floor turns "should we give up?" from a painful in-the-moment negotiation into a decision you already made when you were thinking clearly. Write the abandonment criteria before you write the code.
+
+---
+
+<br />
+
+### Sources
+
+Primary sources read for this entry (under `~/hephaestus_ground_truth/30_PROJECTS/project-wire-to-inference/`):
+
+- `FERRUM-III-REPORT.md` §5 (QCFS miss) + §9.1 (the pivot's cost structure)
+- `09_ferrum_iii.md` — sunset clause text (triggers, two-phase floor) + Phase 2 verdict addendum
+- `results/qcfs-pilot/phase1/phase1_report.json`, `results/qcfs-pilot/phase2/` (per-variant manifests + `T_sweep.json`)
+- `notes/qcfs-pilot-diagnosis.md` — Phase 2 diagnosis
+- commits `3e243a9` (SNN committed), `b654508` (two-phase floor), `3689552` (Phase 1 MISS), `f9d3857` (Phase 2 MISS), `4dd8155` (pivot)
+- memory `feedback_implementability_over_novelty.md` (background framing, not quoted)

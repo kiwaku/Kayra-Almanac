@@ -1,0 +1,85 @@
+---
+title: "Ferrum III: Stage 3 in One Day, Because the Scaffolding Survived"
+date: "2026-04-20"
+tags: ["ai", "security", "ferrum", "ood", "cuda", "infrastructure", "hephaestus"]
+project: ferrum-iii
+images: []
+anomaly: false
+---
+
+When [the SNN direction sunset](/logbook/2026-04-20-ferrum-iii-the-pivot) on 2026-04-20, Stage 3 of [Ferrum III](/projects/ferrum-iii) didn't restart — it *re-pointed*. The entire replacement contribution, a Mahalanobis++ novelty/OOD detector from offline prep through live Mellanox validation (sub-steps P3.1 → P3.6), landed on **a single calendar day: the same 2026-04-20**. Not because the new work was trivial, but because every piece of infrastructure built for the abandoned SNN pilot was domain-agnostic and survived the pivot intact.
+
+<br />
+
+### The pivot didn't cost what a pivot usually costs
+
+The intuition is that abandoning a research direction means throwing away the work you did for it. That's true if your infrastructure is built *around* the algorithm. It's false if your infrastructure is built around the *interfaces*.
+
+The QCFS pilot had produced, as a side effect, a full research harness: a `classifier.cuh` CUDA integration pattern, a Python↔CUDA parity binary, an export gate, a reproducibility-manifest schema, and a pilot-sweep driver. None of it was SNN-specific. When Stage 3 re-pointed at OOD detection, all of it applied unchanged — the only new code was the ~30 lines of Mahalanobis distance inlined into the forward pass.
+
+Here's the day, sub-step by sub-step.
+
+---
+
+<br />
+
+### P3.1 — Offline prep
+
+Estimate per-class means μ_c (4 × 32) and a pooled precision matrix Σ⁻¹ (32 × 32) over the Split B train set (1,051,205 flows) with ridge 10⁻⁴, persisted as `models/ferrum-cic-v1.mahalanobis.*`. The Energy detector needs no offline prep at all — it scores the logits the classifier already produces. *(Source: `notes/stage3-p3-1-prep.md`, commit `dd173ec`.)*
+
+### P3.2 — CUDA integration
+
+Inline the Mahalanobis + Energy computations into `mlp_forward` at `classifier.cuh:461`, between the layer-2 ReLU and the layer-3 matmul — reusing the 32-D penultimate embedding the classifier already computes (100% compute reuse). Gated by `c_maha.enabled` so the OOD-off and OOD-on binaries share the same source and the same upstream parse/aggregate kernels; only the post-MLP distance block is conditional. Measured `__constant__` footprint: **17,680 B** (13,072 B of MLP weights + 4,608 B of OOD head), inside the 32 KB ceiling — clause (d) PASS. *(Commit `4dd8d0e`.)*
+
+### P3.3 — Parity
+
+The same parity binary that validated the SNN path now validates the OOD path: identical inputs through the CUDA kernel and a NumPy/PyTorch reference, **six metrics at FP32 (rel ≤ 1e-5)** — Mahalanobis D², Energy, MSP, argmax class, per-class logits, and the penultimate `h₂` vector. All six PASS. *(Source: `notes/stage3-p3-3-parity.md`, commit `00d2c82`.)*
+
+### P3.4a — Corpus construction (and a counting correction)
+
+The charter cited a 47-flow zero-day holdout (Heartbleed + Infiltration). The parquet has 7 rows. The reason is a granularity mismatch: CIC-IDS2017 emits one row per 2-minute flow-feature *window*, while Ferrum evaluates at 5-tuple flow granularity — so 11 Heartbleed rows = 1 flow and 36 Infiltration rows = 6 flows, total **7 flows**. Caught and documented before measurement. Three supplementary sub-attack corpora (`val_web_attack`, `test_ddos`, `test_bot`; 49,309 flows) were added on statistical-power grounds, with the pre-registered clauses kept against the 7-flow holdout as written. *(Source: `notes/stage3-p3-4a-ood-corpus-decision.md`, commit `ebfd17d`.)*
+
+### P3.4b — The headline result
+
+On the two corpora where the closed-set softmax isn't already saturated, Mahalanobis++-ℓ₂ dominates:
+
+| corpus | MSP AUROC | Maha++-ℓ₂ AUROC | Δ |
+|---|---|---|---|
+| zero-day holdout (7 flows) | 0.5575 | **0.9746** | **+41.7 pp** (z = +4.24) |
+| test_ddos (Friday LOIT) | 0.731 | **0.925** | **+19.5 pp** |
+
+**Energy was rejected** — it under-performs the free max-softmax baseline on every corpus tested. The deployed configuration is Maha++-ℓ₂ only, at τ = 116.263 (val FPR 0.5%), invoked through the pre-registered collapse-to-detector escape hatch. *(Source: `notes/stage3-p3-4b-zero-day-literal.md`, commits `69f4eab`, `ec4b7ee`.)*
+
+### P3.4c — Latency
+
+Kernel microbench: OOD-off 59.05 µs → OOD-on 130.02 µs mean (a 2.2× kernel ratio). But trigger (c) is written against the *end-to-end* budget, and the pre-classify path (NIC DMA → parse → aggregate) is byte-identical between the two binaries. Projected end-to-end: 153 µs avg / 193.8 µs p99 — inside the 2× budget (164 / 238 µs). PASS. *(Source: `notes/stage3-p3-4c-latency-report.md`, commit `ee42456`.)*
+
+### P3.5 / P3.6 — Prose and the closed loop
+
+The §5.7 paper prose was drafted (`54dc879`), and the full pipeline ran end-to-end through the Mellanox DAC pair (`4e4c3b2`): at 15.4 kpps the closed-set classification was *byte-identical* OOD-off vs OOD-on, confirming the distance gate leaves the argmax path untouched. The pipeline was closed the same day the pivot fired.
+
+---
+
+<br />
+
+### The lesson, stated as a rule
+
+Stage 3 took one day instead of three weeks because the scaffolding consumed **models-as-artifacts, not models-as-architectures**:
+
+- **Parity tests at the I/O boundary, not the layer level.** The parity binary diffs inputs→outputs; it never knew or cared whether the model inside was an ANN, an SNN, or an OOD head.
+- **Export gates against output specs, not training pipelines.** The gate refuses to ship a weights file whose CUDA-path softmax diverges from the reference — algorithm-agnostic by construction.
+- **A reproducibility manifest keyed on git SHA + corpus checksums**, not on a particular model family.
+
+When (not if) the research direction changes, this kind of scaffolding survives the change. The pivot re-used the harness wholesale; the cost of the SNN abandonment was bounded to the SNN-specific training code, which was small. Build the boring interfaces well and the exciting work gets cheap.
+
+---
+
+<br />
+
+### Sources
+
+Primary sources read for this entry (under `~/hephaestus_ground_truth/30_PROJECTS/project-wire-to-inference/`):
+
+- `FERRUM-III-REPORT.md` §6 (P3.1–P3.6) + §9.2 (infrastructure that survives a pivot)
+- `notes/stage3-p3-1-prep.md`, `stage3-p3-3-parity.md`, `stage3-p3-4a-ood-corpus-decision.md`, `stage3-p3-4b-zero-day-literal.md`, `stage3-p3-4c-latency-report.md`, `stage3-p3-4c-live-report.md`
+- commits `dd173ec`, `4dd8d0e`, `00d2c82`, `ebfd17d`, `69f4eab`, `ec4b7ee`, `54dc879`, `4e4c3b2` (all 2026-04-20)

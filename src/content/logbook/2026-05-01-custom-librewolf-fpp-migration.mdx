@@ -1,0 +1,142 @@
+---
+title: "Custom LibreWolf: FPP on, RFP off — and the Multi-Engine search-curl"
+date: "2026-05-01"
+tags: ["custom-librewolf", "librewolf", "fingerprinting", "fpp", "searxng", "curl_cffi"]
+project: custom-librewolf
+images:
+  - "/artifacts/custom-librewolf/creepjs-result.png"
+anomaly: false
+---
+
+The day the fingerprinting decision finally locked. After two weeks of treating it as deferred research, the live trade-off snapped into focus: RFP forces `en-US` + UTC on a Tokyo user, letterboxes the viewport, and produces a uniform Tor-shaped signature that Cloudflare / Akamai WAFs flag as bot traffic. FPP gives per-eTLD+1 randomisation without breaking the daily experience. Both prefs got pinned explicitly. Same day: the DDG-only fetch sidecar evolved into a curated four-engine adapter (`searxng/search_curl/`), and three deferred extension decisions (Privacy Badger, Location Guard NG, Encrypted Client Hello) were resolved.
+
+<br />
+
+### The migration
+
+Applied to every named profile via the shared baseline:
+
+```javascript
+// arkenfox overlay group
+user_pref("privacy.resistFingerprinting", false);
+user_pref("privacy.resistFingerprinting.letterboxing", false);
+user_pref("privacy.fingerprintingProtection", true);
+user_pref("privacy.fingerprintingProtection.pbmode", true);
+```
+
+RFP off is **explicit**, not just absent. The Mozilla support corpus already shows cases where a future LibreWolf default flip silently swapped RFP and FPP; pinning both stops that.
+
+**Why FPP, not RFP, on daily:** RFP forces `en-US` locale + UTC timezone (wrong-language content + wrong-timestamp UI for a Tokyo user) and enables letterboxing, producing a uniform Tor-shaped signature that Cloudflare / Akamai WAFs treat as bot traffic. The RFP-strict use case is handled by running **Tor Browser separately**. FPP defeats cross-site fingerprint correlation while leaving locale and timezone alone. Within-session identity stays stable; logins persist.
+
+**Why FPP, not RFP, on clean:** same engine choice as daily. `clean` had already migrated from RFP → FPP at an earlier commit because the RFP cohort's WAF-flag rate was the limiting factor for "sketchy clearnet research" — the workflow that has to actually load pages, not just look private. The `clean`-vs-`daily` distinction is enforced by session wipes and WebGL-off, not by the fingerprinting engine.
+
+**Conservative starting set:** no `granularOverrides` preloaded. LibreWolf ships a curated default override list from Mozilla's remote-settings collection; entries get added only when a specific site breaks.
+
+<div class="diagram-section">
+  <a href="/artifacts/custom-librewolf/creepjs-result.png" class="lightbox">
+    <img src="/artifacts/custom-librewolf/creepjs-result.png" alt="CreepJS fingerprint result on the daily profile — randomisation evidence with trust score intact" loading="lazy" />
+  </a>
+</div>
+
+The `docs/fpp-migration.md` doc covers the schema + override examples so future audits don't need to re-derive the syntax.
+
+---
+
+<br />
+
+### Privacy Badger — rejected
+
+uBlock Origin is force-installed via `policies.json` and runs default-deny against the head of the tracker distribution. PB on top would add:
+
+- a redundant tracker-blocking surface (uBO already catches the head of the distribution)
+- another fingerprintable extension axis (extension fingerprint is a real signal)
+- additional heuristic state to maintain
+- another update channel to monitor
+
+The project's low-maintenance bar — every component should justify its keep against the maintenance cost — rules it out. Revisit only if uBO's filter coverage materially regresses *and* a specific tracker class slips through that PB demonstrably catches.
+
+---
+
+<br />
+
+### Location Guard NG — rejected
+
+`geo.enabled = false` is pinned in `user-overrides.js`. The geolocation API is off entirely on every named profile — nothing for a spoofer to spoof. Compounding factors:
+
+- Location Guard NG is a UserScript, not an XPI — requires a userscript-manager (Tampermonkey / Violentmonkey) that is itself a worse privacy trade-off (broad host permissions, supply-chain history of compromised forks).
+- The "spoof a fake location" posture is incoherent with the "API off entirely" posture; running both would create cross-layer contradiction signal.
+
+Revisit only if `geo.enabled` is ever flipped back on.
+
+---
+
+<br />
+
+### Encrypted Client Hello — deferred (conditional)
+
+ECH encrypts SNI in the TLS handshake. With `network.trr.mode = 5` (DoH explicitly off), the upstream observer reads the hostname from the DNS query moments before the TLS handshake; encrypting SNI on top adds nothing.
+
+**Conditional revisit:** if and only if the project's DoH stance changes (`network.trr.mode` flipped to a non-centralising encrypted resolver), ECH (`network.dns.echconfig.enabled` etc.) comes back onto the table as a meaningful add. Until then, leave the ECH-related prefs at LibreWolf defaults; no entry in `user-overrides.js`.
+
+(Note: 2026-05-04's hardening batch did end up pinning ECH **on**, but as belt-and-braces for the day the DoH stance might change, not because it pays today. The deferral framing here remains correct as the conditional logic that produced today's decision.)
+
+---
+
+<br />
+
+### The SearXNG side — multi-engine search-curl
+
+Yesterday's `searxng/fetch-adapters/ddg-curl/` was a single-engine adapter. Today it evolved into a curated package:
+
+```
+searxng/search_curl/
+├── engines/
+│   ├── ddg.py
+│   ├── brave.py
+│   ├── mojeek.py
+│   └── karmasearch.py
+├── http_curl.py     # curl_cffi session wrapper, impersonate=chrome120
+└── parser_utils.py
+```
+
+The package is not the service-of-record yet — that lands tomorrow when `curl_cffi` gets inlined into SearXNG's own venv and the FastAPI middleware service dies. Today it lives alongside the existing FastAPI shim.
+
+Engine selection was curated by **failure-shape probe + manual gating**, not a benchmark sort:
+
+- **Qwant rejected** because its 200 OK response carried honeypot / canary content rather than real results — worse than a clean 403. A 403 is honest; a 200 with poisoned content silently degrades search quality.
+- **Karmasearch in** as the fourth engine. Failure shape under httpx (same-origin Referer is direct evidence the upstream module is being detected as scraped) addressed by curl_cffi's Chrome-shaped handshake.
+- **Marginalia rejected on policy** — engine module now requires an API key; project privacy stance forbids account-tied engines. Was the first-choice candidate for the third-general-engine slot.
+
+Per-engine evidence and locked verdicts in `docs/search-engine-curation.md`; per-engine roster state in `searxng/native/ENGINES.md`.
+
+---
+
+<br />
+
+### Benchmark recommendations applied
+
+`docs/searxng-benchmark.md` recorded a benchmark of the live SearXNG against DDG-direct earlier in the week. Five recommendations; four applied today:
+
+1. ~~Marginalia as third general engine~~ — rejected on the policy ground above.
+2. **PubMed + arXiv + Semantic Scholar on the Science tab** — these don't fire on plain general queries but light up when the user picks the matching SearXNG tab or types a `!bang` shortcut.
+3. **Presearch as third general engine** (the floor against the Q10-class double-failure where both DDG and Brave miss).
+4. **Stack Overflow on the IT tab.**
+5. **Wikipedia weight 0.5 → 1.0** — attribution still 0/10 (dedup against DDG-attributed wiki URLs), but bumping the weight at least gives Wikipedia a fairer shake when the dedup logic improves.
+
+---
+
+<br />
+
+### `sidecar/` renamed to `fetch-adapters/ddg-curl/` → `search-curl/`
+
+The directory got renamed twice in the same window. First (this morning): `searxng/sidecar/` → `searxng/fetch-adapters/ddg-curl/` because the previous name suggested a parallel architecture component when it was really an on-demand fetch adapter for one fragile upstream. Second (this afternoon, after the multi-engine evolution above): `fetch-adapters/ddg-curl/` → `search_curl/` — once it covered four engines, the "ddg" specificity stopped being accurate.
+
+The two renames are recorded in the same day's session summary in `GROUND_TRUTH.md` to keep the architectural reframing visible — a single direction-of-travel, not a thrash.
+
+---
+
+<br />
+
+### What didn't land today
+
+The audit-driven follow-ups (the `JSDateTimeUTC` opt-out and `media.peerconnection.enabled = false`) were prepared today but apply the **2026-05-01 fingerprint audit**, and their session summary lives under tomorrow in `GROUND_TRUTH.md` because they bundle with the curl_cffi inline work. They're recorded in tomorrow's logbook entry to keep the GROUND_TRUTH/logbook taxonomy aligned.

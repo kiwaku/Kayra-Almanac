@@ -1,0 +1,154 @@
+---
+title: "Custom LibreWolf: curl_cffi Inlined; the FPP Audit Follow-ups"
+date: "2026-05-02"
+tags: ["custom-librewolf", "searxng", "curl_cffi", "fingerprinting", "webrtc", "librewolf"]
+project: custom-librewolf
+images: []
+anomaly: false
+---
+
+Consolidation day. The FastAPI `search-curl` service from the multi-engine adapter shipped yesterday got **deleted** — `curl_cffi` was inlined directly into SearXNG's own venv as `engine_type = "offline"` modules. The 2026-05-01 fingerprint audit's two highest-priority findings landed in `user-overrides.js` (JS timezone target opted out; WebRTC API off). And the Google / Bing / Yandex disable list got expanded across every category fan-out to stop a long-tail leak that had been live for a week.
+
+<br />
+
+### Kill the middleware
+
+Yesterday's `searxng/search_curl/` package was sitting *alongside* the FastAPI router at `searxng/fetch-adapters/search-curl/`, which ran as `app.searxng-search-curl` launchd plist on a separate loopback port. That meant every SearXNG default query was doing dual fan-out: SearXNG's built-in `duckduckgo` engine (via httpx) **and** the FastAPI shim's curl_cffi DDG path, in parallel. The dual-fan-out was the direct cause of Brave's 429-Suspended cascade the previous day — running both `brave` (built-in httpx) and the shim's curl_cffi Brave path doubled the IP-rep cost per query.
+
+Today's fix: `curl_cffi` + `beautifulsoup4` installed into SearXNG's own venv:
+
+```sh
+sudo -u searxng /opt/searxng/venv/bin/pip install \
+  curl_cffi beautifulsoup4
+sudo -u searxng /opt/searxng/venv/bin/pip install -e \
+  /Users/kayraozturk/browser_custom/searxng/search_curl
+```
+
+Each engine is now a SearXNG-native `engine_type = "offline"` module that imports `search_curl.engines.<name>` directly. No second daemon, no loopback HTTP hop, no FastAPI startup latency.
+
+`engines:` block update in the live `settings.yml`:
+
+```yaml
+- name: duckduckgo
+  engine: duckduckgo
+  disabled: true             # was: enabled (httpx)
+- name: brave
+  engine: brave
+  disabled: true             # was: enabled (httpx)
+
+- name: ddg sidecar
+  engine: search_curl.ddg
+  engine_type: offline
+  shortcut: ddgs
+- name: brave sidecar
+  engine: search_curl.brave
+  engine_type: offline
+  shortcut: brs
+- name: mojeek sidecar
+  engine: search_curl.mojeek
+  engine_type: offline
+  shortcut: mjks
+- name: karmasearch sidecar
+  engine: search_curl.karmasearch
+  engine_type: offline
+  shortcut: kas
+```
+
+The sidecars are now the **primary** path. The built-in engines are off; they're not a manual fallback lane anymore.
+
+**Files deleted:**
+
+- `searxng/fetch-adapters/search-curl/` (the whole FastAPI directory)
+- `scripts/launchd/app.searxng-search-curl.plist`
+
+**Phase-1 research evaluated SearXNG PR [#5476](https://github.com/searxng/searxng/pull/5476)** ("impersonate via httpx-curl-cffi") and ruled it out as a future migration target rather than a today-fix — it's still a draft 5+ months in, and waiting for it would have left the dual-fan-out problem live.
+
+---
+
+<br />
+
+### FPP audit Priority 1 + Priority 2 fixes
+
+The 2026-05-01 audit (`docs/fingerprint-audit/current-daily-profile.md`) surfaced two cross-layer contradictions:
+
+**P1 — JS Date / Intl reporting `Atlantic/Reykjavik`** (GMT+0) while the network IP identifies as Tokyo. This is FPP's default behaviour — the `JSDateTimeUTC` target normalises JS time-source APIs to UTC across the fingerprintable surface. On a logged-in profile where the network IP already exposes Tokyo at the routing layer, the JS/network contradiction adds correlation signal without paying anonymity benefit.
+
+Fix:
+
+```javascript
+user_pref("privacy.fingerprintingProtection.overrides",
+          "+AllTargets,-JSDateTimeUTC");
+```
+
+The override pref **REPLACES** the curated default set when non-empty — verified against Mozilla support thread #1426184 and arkenfox baseline's own example syntax. That's why the `+AllTargets` anchor is required: without it, the override pref would peel `JSDateTimeUTC` off but also default-off every other Mozilla-curated target. `+AllTargets` keeps every other target at default-on; `-JSDateTimeUTC` peels off only timezone.
+
+Acceptable on `clean` because the network IP already exposes Tokyo at the routing layer regardless of what JS Date reports.
+
+**P2 — WebRTC srflx candidates leak public IPv4 / IPv6.** The prior posture (peerconnection on with ICE-layer scrubbing — `ice.default_address_only`, `ice.no_host`, `ice.proxy_only_if_behind_proxy`) closed the *local*-IP leak but still exposed *public* IPv4 / IPv6 through srflx candidates. Confirmed in CreepJS and BrowserLeaks WebRTC. User confirmed they do not use voice / video calls in LibreWolf daily.
+
+Fix:
+
+```javascript
+user_pref("media.peerconnection.enabled", false);
+```
+
+The previous arkenfox-derived ICE prefs got **removed** because they become dead code with peerconnection off — project rule: no prefs without rationale. The arkenfox baseline upstream still emits a couple of ICE prefs in the generated `user.js`, but they have no effect when peerconnection is disabled.
+
+**Brave is the documented call-path fallback** if a future need surfaces. The `docs/fingerprint-audit/post-fpp.md` scaffold awaits a re-run against CreepJS / tls.peet.ws / BrowserLeaks; that diff lands in a later session.
+
+---
+
+<br />
+
+### Google / Bing / Yandex — lock the privacy hard-block across every category
+
+The disable-list from day 1 only covered the general-category modules (`google`, `bing`, `yandex`). Each category variant — `google_images`, `google_news`, `google_videos`, `google_scholar`, `google_play_apps`, `google_play_movies`, `bing_images`, `bing_news`, `bing_videos`, `yandex_images`, `yandex_music` — is a distinct entry in `~/.local/searxng/src/searx/settings.yml` and inherits SearXNG's compile-time default (most ship enabled).
+
+Observed today: images / news / videos / scholar / play queries were silently firing to the aggregators. Live for a week — the main lever of the entire SearXNG decision was leaking.
+
+Fix: every variant got `disabled: true` overrides today. The session summary in `GROUND_TRUTH.md` records the maintenance contract: **after any upstream SearXNG pull, re-grep the upstream defaults for new `google_*` / `bing_*` / `yandex(_*)` entries and add the override.**
+
+---
+
+<br />
+
+### Pinterest + Art Institute of Chicago — disabled (broken)
+
+Two image-category engines were producing zero results: `pinterest` (Cloudflare 403) and `artic` (Art Institute of Chicago — broken upstream module). Disabled without replacement; image-category fallback is the working DDG + Brave + Mojeek sidecars under the `images` tab.
+
+---
+
+<br />
+
+### Daily session-restore enabled (`browser.startup.page = 3`)
+
+UX flip — daily now restores the previous session on launch. FileVault encrypts the on-disk `sessionstore.jsonlz4`, and daily already persists logins / history / bookmarks, so session-restore is not the marginal-privacy risk it would be in a fresh profile. Revertible to `0` in `user-overrides.js` if concerns arise. `browser.sessionstore.resume_from_crash = false` stays — that's a different mechanism (handles tab-crashed-the-browser auto-reload, not normal-shutdown session restore).
+
+Clean is unaffected: sanitize-on-shutdown wipes session state, so session-restore has nothing to restore there.
+
+---
+
+<br />
+
+### Tier A: SearXNG outgoing-fetch hardening + research briefs
+
+In parallel with the curl_cffi consolidation, a research arc kicked off on long-term outgoing-fetch posture. Four research briefs locked into `docs/_research/`:
+
+- **Brief 1** — Brave-passing profile candidates literature survey.
+- **Brief 2** — TLS-impersonation library landscape SOTA (replacement-decision survey).
+- **Brief 3** — IP-rep mitigation strategies.
+- **Brief 4** — parallel Briefs 1–3 + meta-synthesis (`mwmbl` + `yacy` lit-review at §W12; landed 2026-05-03).
+
+Tier A cheap-wins gate tests (T1, T2, T3, T5; T4 deferred to user) ran today; post-Tier-A synthesis produced Q1 / Q2 / Q3 verdicts + a priority order; a meta-synthesis decision doc + addendum extensions stamped Tier B v1.0's gate-test composition and the §7a third-inference case. Tier B v1.0 implementation lands 2026-05-03.
+
+Addendum resolution #10 — **DDG-onion intervention retracted on stack-coherence grounds**: routing DDG queries through a stack-internal Tor circuit would have created a posture contradiction with the existing SearXNG-discovers-onion-URLs-Tor-Browser-loads-them split (see Three postures, three profiles on the project page). Better to not double up.
+
+---
+
+<br />
+
+### Docs coherence pass
+
+End-of-day: `GROUND_TRUTH.md` got a full coherence pass to make sure every cross-reference (search-curl rename, FPP override syntax, WebRTC dead-pref removal, google-variant lockdown, browser.startup.page revertibility) was consistent across the document. The `2026-05-02 session summary` block at the top of the file got composed from this pass, not as a running diary.
+
+The pattern is by now load-bearing: GROUND_TRUTH is restated end-of-day, not edited in flight. The ACTIVITY_LOG is the running history; GROUND_TRUTH is the consolidated state.

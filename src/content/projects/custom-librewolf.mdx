@@ -1,0 +1,284 @@
+---
+title: Custom LibreWolf
+id: custom-librewolf
+year: 2026
+domain: ["security", "os"]
+status: "active"
+featured: true
+badges: []
+summary: "<strong>Hardened LibreWolf rig on macOS</strong> — single-machine privacy stack with no third-party gates between the laptop and the network. Every component sits on loopback.<ul><li>Local recursive DNS — dnsmasq → Unbound + DoT to Quad9 / Mullvad / Control D, dnstap pipeline for per-query forwarder attribution</li><li>LibreWolf — arkenfox baseline + per-profile overlays, FPP-on / RFP-off, two profiles (daily / clean) with dedicated dock launchers</li><li>SearXNG at 127.0.0.1:8888 — DDG / Brave / Mojeek / Karmasearch via in-process curl_cffi, Google / Bing / Yandex disabled across every category fan-out</li><li>Privacy Stack Viewer — custom MV3 WebExtension surfacing live TLS / DNS / search state in the toolbar popup</li></ul>"
+artifacts:
+  diagram: ""
+images:
+  - "/artifacts/custom-librewolf/popup-hero.png"
+  - "/artifacts/custom-librewolf/searxng-results.png"
+  - "/artifacts/custom-librewolf/daily-sidebery.png"
+related: ["qut"]
+---
+
+Custom LibreWolf is a reproducible, dotfiles-style privacy stack for a single Mac: a local recursive DNS resolver, a hardened LibreWolf browser, a self-hosted SearXNG instance, and a custom WebExtension that exposes the whole stack in a toolbar popup. The repo is single-user and native — no containers in the hot path, no cloud middleware, no third-party gates between the laptop and the network. The whole stack runs on loopback, and a fresh Mac with Homebrew, LibreWolf, and the repo cloned reaches the same end state with one command: `./install.sh`.
+
+The project started in late April 2026 as a deliberate consolidation: a single repo whose `install.sh` could rebuild the privacy posture from scratch on a clean machine, with every decision recorded against the failure mode it avoids. The **WHY** lives in `README.md`. The **WHAT/WHERE** lives in `GROUND_TRUTH.md`. The ordered **DO-THIS** walkthrough lives in `MANUAL_SETUP.md`. Every load-bearing decision below is one of those three documents condensed.
+
+---
+
+<br />
+
+### At a glance
+
+- **Install path:** `/Applications/Browsers/LibreWolf.app` (custom — not the default). Every script, launcher, and policy reapply in this repo targets this path; the path is not parameterised.
+- **DNS:** dnsmasq (`127.0.0.1:53`) → Unbound (`127.0.0.1:5335`) with DoT to Quad9 + Mullvad + Control D. Phase 2 adds an Unbound dnstap → Python collector → Unix-socket → native-messaging pipeline for per-query forwarder attribution surfaced in the browser popup.
+- **Browser:** LibreWolf with the arkenfox baseline + a project-specific overlay + per-profile overlays. Two named profiles: `daily` (logged-in, FPP-on, locale-correct) and `clean` (session-only, WebGL off, sanitize-on-shutdown). Tor Browser is the third posture and is run unmodified.
+- **Search:** SearXNG native via launchd `app.searxng` on `127.0.0.1:8888`. Four primary engines — DDG, Brave, Mojeek, Karmasearch — fan out via in-process `curl_cffi` (Chrome-shaped TLS) and bypass SearXNG's httpx outgoing client. Google / Bing / Yandex (and every category variant — `google_images`, `bing_news`, …) are blocked.
+- **Cadence:** weekly launchd agent on Sunday 03:00 runs `brew upgrade --cask librewolf` and reapplies the in-bundle policies. A daily 09:00 RSS tripwire polls Mozilla Security Advisories and posts a macOS notification on new GUIDs so the user can upgrade early.
+- **Extension:** `librewolf-extensions/privacy-stack-viewer/` — custom MV3 WebExtension. Toolbar popup shows the active tab's TLS state, the DNS forwarder that resolved its hostname, and live SearXNG engine stats when the active tab is the local search page.
+
+---
+
+<br />
+
+### Three postures, three profiles
+
+**Each profile has one coherent threat model. Don't smear them.**
+
+| Profile | Posture | Use for | Don't use for |
+|---|---|---|---|
+| **daily** | Comfortable, logged-in, locale-correct (Tokyo). RFP off, FPP on (per-eTLD+1 randomisation). Protected by containers + arkenfox baseline + local DNS stack. | Everyday browsing, logged-in services, per-identity tabs via Multi-Account Containers. | Sketchy/research browsing — your logins de-anonymise you to anyone watching the fingerprint. |
+| **clean** | Pseudonymous. RFP off, FPP on. WebGL off. Session-only state, no logins, no persistence — sanitize-on-shutdown wipes cache/cookies/history/sessions on close. | Sensitive clearnet research, one-off links, anything you don't want polluting daily's state. | Logging into anything you also use in daily. Onion content (use Tor Browser). |
+| **Tor Browser** | Anonymous. Tor Project's posture, unmodified. | Onion-link retrieval, anything where IP-level anonymity matters. | Anything where you'd be tempted to "fix" the layout, locale, or fingerprint defaults — those defaults are calibrated for the Tor Browser user crowd; breaking them deanonymises you. |
+
+**Discovery vs retrieval:** SearXNG (any profile) finds onion URLs. Tor Browser loads them. LibreWolf-with-hardening is **not** a Tor Browser substitute — Tor Browser ships patches Firefox doesn't (proper first-party isolation, timing-attack mitigations, RFP calibrated to its user base, bundled Tor daemon with circuit isolation).
+
+**One activity, one profile, clear boundary.** If you find yourself wanting to mix, that's the signal you need a fourth profile (e.g. `work`) — add it via the documented overlay pattern, don't compromise an existing one.
+
+---
+
+<br />
+
+### Architecture
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  macOS — single user, all on loopback                        │
+│                                                              │
+│  System resolver ──► dnsmasq :53 ──► Unbound :5335 ──► roots │
+│                          │              │                    │
+│                          │              └──► DoT 853 ───►    │
+│                          │                 Quad9 / Mullvad / │
+│                          │                 Control D          │
+│                          ▼                                    │
+│                   queries.log (rotated daily by launchd)     │
+│                                                              │
+│  Unbound (dnstap) ─► privacy_stack_dns_observer.collector ──┐│
+│                       (10-min in-mem ring, no disk log)     ││
+│                       query.sock ◄─── native-messaging ─────┘│
+│                                                ▲             │
+│                                                │             │
+│  ┌─────────────────────────────────────────────┴───────────┐ │
+│  │  LibreWolf  /Applications/Browsers/LibreWolf.app        │ │
+│  │   ├── Profile: daily  (FPP on, RFP off, MA Containers)  │ │
+│  │   └── Profile: clean  (FPP on, WebGL off, wipe @exit)   │ │
+│  │   ├── arkenfox baseline + project overlay + per-profile │ │
+│  │   ├── policies.json — locks DoH=off, NetworkPrediction, │ │
+│  │   │                    enterprise_roots, etc.            │ │
+│  │   └── Privacy Stack Viewer (MV3 ext, toolbar popup)     │ │
+│  └─────────────────────────────────┬───────────────────────┘ │
+│                                    │ default search          │
+│                                    ▼                          │
+│  SearXNG (native, launchd app.searxng) ─ 127.0.0.1:8888      │
+│   ├── curl_cffi sidecars: DDG · Brave · Mojeek · Karmasearch │
+│   └── Google / Bing / Yandex disabled across every category  │
+└──────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+                      Tor Browser (separate app, untouched)
+                      for onion-link retrieval only
+```
+
+The whole stack is single-user and native — no containers, no Docker in the hot path, no cloud middleware. (A Docker SearXNG compose-file is kept as a not-yet-decommissioned fallback under `searxng/`; the native launchd path under `searxng/native/` is the service of record.)
+
+---
+
+<br />
+
+## Why each piece
+
+Each design choice has a failure mode it avoids. The alternatives were considered and rejected for the reasons given.
+
+### Why a local DNS stack
+
+Goal: **visibility + no upstream trust.** A caching forwarder on `127.0.0.1:53` gives per-query logs — you can see what every application on the Mac looks up. Behind it, Unbound does full recursive resolution with DoT to a diversified upstream set. The alternative — pointing the system at 1.1.1.1 or 8.8.8.8 — means a third party sees every name your Mac resolves. With DoH kill-switched in LibreWolf (`network.trr.mode = 5`), all name traffic goes through this stack. If DNS breaks, browsing breaks visibly — that failure mode is intentional.
+
+### Why SearXNG, self-hosted
+
+Goal: **same "trust no upstream" posture as DNS, applied to search.** A remote SearXNG instance still funnels every query through its operator; Firefox's built-in search picker still sends each query to whichever engine won that query. Running SearXNG on `127.0.0.1:8888` means queries fan out from *your* Mac to multiple engines, weighted, with Google / Bing / Yandex explicitly disabled — they are the main aggregators, their absence is the privacy win. DDG, Brave, Mojeek, Karmasearch carry the query load. The instance binds to loopback only, never `0.0.0.0`, so it's not exposed on the LAN.
+
+### Why two profiles (`daily` and `clean`)
+
+Goal: **real disk-level isolation, not just cookie-jar isolation.** Containers (Multi-Account + Temporary) separate cookies, cache, and site storage *within* a profile — they share IndexedDB quota, extension storage, and every other per-profile database. A second on-disk profile gives a fully separate storage graph: a rogue extension or an IndexedDB exploit in `daily` can't reach `clean`. `clean` is uBlock-only, starts every tab in a fresh Temporary Container, and never logs into anything.
+
+### Why FPP, not RFP
+
+Goal: **defeat cross-site fingerprint correlation without breaking the daily browsing experience.** Resist Fingerprinting (`privacy.resistFingerprinting = true`) forces `en-US` locale + UTC timezone — a Tokyo user gets wrong-language content and wrong-timestamp UI — enables letterboxing, and produces a uniform Tor-shaped signature that Cloudflare / Akamai WAFs treat as bot traffic. The RFP-strict use case is handled by running **Tor Browser separately**. FPP (per-eTLD+1 randomisation, Brave-farbling-style) defeats correlation while leaving locale and timezone alone. Within-session identity stays stable; logins persist. Both prefs are pinned explicitly so a future LibreWolf default flip can't silently swap the posture.
+
+### Why prefs + policies over extensions
+
+Goal: **fewer moving parts, no extension bloat.** A `user.js` pref is one line in a text file; an extension is code you trust, maintained by a person who may stop maintaining it, with its own storage and attack surface. Anything that can be done via a pref (DoH off, first-party isolation, telemetry off, speculative-connect off) *is* done via a pref. Extensions are reserved for things Mozilla can't do in-tree: uBlock Origin, container management, codec negotiation.
+
+### Why a reapply script
+
+Goal: **survive Homebrew cask upgrades.** `brew upgrade --cask librewolf` replaces the `.app` bundle wholesale — anything written into `Contents/Resources/distribution/policies.json` or `Contents/Resources/mozilla.cfg` is wiped on every upgrade. The weekly launchd agent at Sunday 03:00 runs the upgrade and then reapplies the in-repo policies back into the bundle. Without that agent, every cask upgrade silently un-hardens the browser.
+
+### Why the RSS tripwire
+
+Goal: **close the window between "advisory published" and "cask rebuilt".** Mozilla publishes Firefox / Thunderbird security advisories on their own schedule; the LibreWolf cask typically lags by a few days. Waiting for the Sunday auto-upgrade means running a version with a known public vulnerability for up to a week. A daily poll of Mozilla's advisory RSS feed posts a macOS notification on new GUIDs so the user can manually `brew upgrade --cask librewolf` as soon as a build is available.
+
+---
+
+<br />
+
+### Fingerprinting posture
+
+Decision applied 2026-05-01: per-eTLD+1 randomisation engine on, RFP off, on every named profile. The per-profile split is in *what state survives* (clean wipes on shutdown, daily persists), not in the fingerprinting engine.
+
+| Profile | RFP | FPP | Letterboxing |
+|---------|-----|-----|--------------|
+| `daily` | off (explicit) | on | off |
+| `clean` | off (explicit) | on | off |
+| Tor Browser | — | — | — (untouched; uses Tor Project's calibration) |
+
+**Conservative starting set:** `privacy.fingerprintingProtection = true` + `.pbmode = true`, with `privacy.resistFingerprinting = false` and `.letterboxing = false` pinned explicitly. **No `granularOverrides` preloaded** — LibreWolf ships a curated default override list from Mozilla's remote-settings collection; entries are added only when a specific site breaks.
+
+**FPP target override applied 2026-05-02 (audit-driven):** `privacy.fingerprintingProtection.overrides = "+AllTargets,-JSDateTimeUTC"`. The 2026-05-01 fingerprint audit found JS Date / Intl reporting `Atlantic/Reykjavik` (GMT+0) while the network IP identifies as Tokyo — a cross-layer contradiction that adds correlation signal without paying anonymity benefit on a logged-in profile. The `+AllTargets` anchor keeps every other Mozilla-curated FPP target at default-on; `-JSDateTimeUTC` peels off only the timezone target.
+
+**WebRTC posture, same audit:** `media.peerconnection.enabled = false` on every named profile. The prior posture (peerconnection on with ICE-layer scrubbing) closed the local-IP leak but still exposed public IPv4 / IPv6 through srflx candidates — confirmed in CreepJS and BrowserLeaks. User does not use voice/video calls in LibreWolf; turning the API off entirely is the right posture. **Brave is the documented call-path fallback** if a future need surfaces.
+
+---
+
+<br />
+
+### Privacy Stack Viewer
+
+`librewolf-extensions/privacy-stack-viewer/` — a custom MV3 WebExtension that surfaces the active tab's privacy stack as a toolbar popup. Phase 1 (2026-05-04) shipped the UI and all data sources except DNS forwarder attribution; phase 2 (2026-05-07) added the dnstap pipeline that supplies it.
+
+<div class="diagram-section">
+  <a href="/artifacts/custom-librewolf/popup-hero.png" class="lightbox">
+    <img src="/artifacts/custom-librewolf/popup-hero.png" alt="Privacy Stack Viewer popup — TAB / DNS / SEARCH / PRIVACY STACK sections with forwarder attribution row" loading="lazy" />
+  </a>
+</div>
+
+**Four popup sections:**
+
+- **TAB** — hostname, IP, TLS version + cipher, ECH state (green = accepted, yellow = extension-present / success-false), cert issuer, HSTS. TLS rows are suppressed for `about:` / `chrome:` / `extension:` / `file:` / `resource:` pages and for the SearXNG loopback host.
+- **DNS** — resolver (`127.0.0.1:5335` Unbound) and the upstream DoT forwarders baked from `dns/unbound.conf`. Phase 2 fills in a per-query attribution row: which forwarder resolved this tab's hostname (`via Quad9`, `via Mullvad`, …), or a typed failure reason (`helper_missing` / `collector_unavailable` / `no_evidence` / `ambiguous`) with reason-aware help text.
+- **SEARCH** — only renders when the active tab is on `127.0.0.1:8888`. Fetches `/stats` and `/config` from SearXNG and renders the top 8 engines by recent query count with error-rate / cooldown toning; all field accesses wrapped in fallbacks for schema drift tolerance.
+- **PRIVACY STACK** — cross-origin sub-request count and up to 3 most-frequent third-party hostnames; static labels for FPP / ETP / WebRTC reflecting project config (deliberately not a runtime `about:config` read — that API surface does not exist for WebExtensions).
+
+**Privacy contract:** hostnames only in third-party rows (full URLs would expose visited paths); no persistence, no telemetry, no disk I/O; zero outbound except two loopback SearXNG endpoints. Documented in `librewolf-extensions/privacy-stack-viewer/PRIVACY.md`.
+
+**Phase 2 plumbing (per-query forwarder attribution):**
+
+```
+Unbound (dnstap socket) ──► privacy_stack_dns_observer.collector
+                              (10-min / 4096-event ring buffer)
+                                       │
+                                       ▼
+                                 query.sock  (Unix)
+                                       │
+                                       ▼
+                            native_host stdio bridge
+                                       │
+                                       ▼
+                              LibreWolf extension
+                              (lookup_forwarder IPC)
+```
+
+Stock Homebrew Unbound ships without `dnstap` support, so a repo-managed formula (`dns/homebrew/unbound.rb`) builds Unbound with `--enable-dnstap --with-protobuf-c`. The collector runs as a root-owned `LaunchDaemon` that creates the observer socket *before* Unbound restarts (Unbound attempts to connect exactly once at startup and silently skips dnstap if the socket isn't there). No network listeners, no disk logging of DNS events.
+
+---
+
+<br />
+
+### SearXNG engine policy
+
+**Disabled (never enable these):** Google, Bing, Yandex — **including every category variant** (`google_images`, `google_news`, `google_videos`, `google_scholar`, `google_play_apps`, `google_play_movies`, `bing_images`, `bing_news`, `bing_videos`, `yandex_images`, `yandex_music`). Disabling only the general-category entry leaves images / news / videos / scholar firing — observed 2026-05-02 before the fan-out lockdown.
+
+**Primary general-search lanes — curl_cffi sidecars:** DDG, Brave, Mojeek, Karmasearch. Each is a SearXNG `engine_type = "offline"` module that imports `search_curl.engines.<name>` directly and bypasses SearXNG's httpx outgoing client. `curl_cffi` performs a Chrome-shaped TLS handshake (`impersonate=chrome120`) that survives the WAF cascades that broke the previous httpx-based posture.
+
+<div class="diagram-section">
+  <a href="/artifacts/custom-librewolf/searxng-results.png" class="lightbox">
+    <img src="/artifacts/custom-librewolf/searxng-results.png" alt="SearXNG result page — four-engine fan-out, no Google / Bing / Yandex" loading="lazy" />
+  </a>
+</div>
+
+**Recovery:** if a sidecar is challenged (90 s in-process cooldown on a challenge body or `429 Suspended`), the unblock path is to open the engine in LibreWolf and clear the IP-rep flag manually. Tier B v1.0 (2026-05-03) layered disclosed-leg politeness + per-engine token bucket + TTL cache on top.
+
+---
+
+<br />
+
+### Update cadence
+
+| Agent | Schedule | What it does |
+|---|---|---|
+| `com.user.librewolf-update` | Sunday 03:00 weekly | `brew upgrade --cask librewolf`, then reapplies `librewolf/policies.json` (and `mozilla.cfg` + `autoconfig.js` if present) from the repo into the app bundle |
+| `com.user.moz-advisory` | Daily 09:00 | Polls Mozilla Security Advisories RSS as a tripwire; posts a macOS notification when a new advisory appears so the user can upgrade early |
+| `com.user.librewolf-customizations` | At login | Re-runs `install-profile-files.sh` as a self-heal (re-points symlinks if anything has gone stale after a worktree deletion) |
+| `com.user.dnsmasq-logrotate` | Daily | Rotates `~/Library/Logs/dnsmasq/queries.log`, keeps 14 dated archives |
+| `com.user.privacy-stack-dns-observer` | At boot | Root-owned LaunchDaemon — starts the dnstap collector, chowns the query socket to the invoking user |
+
+`RunAtLoad=false` on the update and advisory agents — they run only at their scheduled time, not on login. The reapply agent uses `sudo cp` to write into the app bundle; a NOPASSWD sudoers rule scoped to the exact `cp` paths is required for unattended runs.
+
+---
+
+<br />
+
+### Daily-driver surface
+
+<div class="diagram-section">
+  <a href="/artifacts/custom-librewolf/daily-sidebery.png" class="lightbox">
+    <img src="/artifacts/custom-librewolf/daily-sidebery.png" alt="LibreWolf daily profile — Sidebery sidebar, custom userChrome.css, native tab bar hidden" loading="lazy" />
+  </a>
+</div>
+
+Daily runs Sidebery for vertical tabs (native tab bar hidden via `librewolf/userChrome.css`), Multi-Account Containers + Container Tabs Shortcuts for per-identity isolation, uBlock Origin with redirect resources, Skip Redirect, and the Privacy Stack Viewer. Location Guard NG and Privacy Badger were evaluated and **deliberately not installed** — uBO already handles trackers; `geo.enabled = false` is pinned, so there's nothing for a geolocation spoofer to spoof.
+
+Two AppleScript launcher bundles (`LibreWolf-Daily.app`, `LibreWolf-Clean.app`) live in `/Applications/Browsers/` and go in the Dock. Both pass `--no-remote -P <name>` — without `--no-remote`, the second launcher attaches to the first profile's running process instead of opening its own. The plain `LibreWolf.app` does **not** belong in the Dock.
+
+---
+
+<br />
+
+### Changelog
+
+- **2026-04-23** — The whole stack lands in one day. Eight tasks: `GROUND_TRUTH.md` + `ACTIVITY_LOG.md` baseline; Day 1 about:config prefs staged into `librewolf/user-overrides.js`; local DNS stack (dnsmasq + Unbound, full recursion, no upstream forwarders); SearXNG via docker-compose on `127.0.0.1:8888`; video playback memory fixes (hardware decode prefs + media cache trim + tab unloading); two profiles + container extensions + AppleScript dock launchers; weekly launchd update + reapply agent + RSS advisory tripwire; comprehensive `MANUAL_SETUP.md` walkthrough. [Build log](/logbook/2026-04-23-custom-librewolf-day-one)
+- **2026-04-24** — Dotfiles-style repo structure + top-level idempotent `install.sh` + README WHY doc. Hardening overlay landed: three-layer pref stack (arkenfox baseline + project overlay + per-profile overlays), `librewolf/updater.sh` + `verify.sh`, `policies.json` locking DoH=off / NetworkPrediction / enterprise_roots / OfferToSaveLogins + force-installing the container extensions. Clean profile gains pseudonymous overlay (WebGL off, session-only, sanitize-on-shutdown). DoT escalation onto Unbound for VPN coexistence. [Build log](/logbook/2026-04-24-custom-librewolf-hardening-overlay)
+- **2026-05-01** — Fingerprinting decision: FPP on, RFP off, on every named profile. `privacy.resistFingerprinting` pinned explicitly so a future LibreWolf default flip can't silently swap the posture. Privacy Badger + Location Guard NG **rejected** (uBO already covers; `geo.enabled = false` already pinned). Encrypted Client Hello **deferred** (no point with cleartext DNS upstream). SearXNG: multi-engine search-curl adapter — `searxng/search_curl/` covering DDG, Brave, Mojeek, Karmasearch via in-process `curl_cffi`. Benchmark recommendations applied: Presearch on as third general engine, Wikipedia weight bumped 0.5 → 1.0, Stack Overflow on IT tab, PubMed / arXiv / Semantic Scholar on Science. [Build log](/logbook/2026-05-01-custom-librewolf-fpp-migration)
+- **2026-05-02** — `curl_cffi` inlined into SearXNG's own venv; the previous FastAPI `search-curl` service and its `app.searxng-search-curl` launchd plist are **deleted**. Built-in `duckduckgo` (and images/videos/news) and built-in `brave` disabled to stop the dual-fan-out problem that caused yesterday's Brave 429-Suspended cascade. FPP audit follow-ups: `privacy.fingerprintingProtection.overrides = "+AllTargets,-JSDateTimeUTC"` (peels off the timezone target so JS Date / Intl stops reporting `Atlantic/Reykjavik` while the network IP identifies as Tokyo); `media.peerconnection.enabled = false` (the prior ICE-scrub posture still leaked public IPv4 / IPv6 via srflx candidates). Tier A SearXNG outgoing-fetch hardening implemented; three research briefs locked into `docs/_research/`. [Build log](/logbook/2026-05-02-custom-librewolf-curl-cffi-inline)
+- **2026-05-03** — Tier B v1.0 `search_curl` implementation: disclosed-leg politeness + per-engine token bucket + TTL cache. LibreWolf daily-use issue triage (privacy-preserving inspection + diagnosis pass). Privacy-neutral pref tunings for background-tab progression (`dom.timeout.enable_budget_timer_throttling = false`, `browser.tabs.unloadOnLowMemory = false`, `dom.serviceWorkers.enabled = true`). Brave sidecar temporarily disabled for IP-reputation rest. mwmbl + yacy engines added (Brief 4 §W12). DNS DoT escalation merged from stranded 2026-04-24 branch. [Build log](/logbook/2026-05-03-custom-librewolf-tier-b-issues)
+- **2026-05-04** — DNS / LibreWolf hardening batch: forwarder diversification, OCSP off (CRLite already handles revocation; OCSP responders are a metadata leak), ECH pinned. **Privacy Stack Viewer Phase 1 ships** — MV3 WebExtension under `librewolf-extensions/privacy-stack-viewer/`, four popup sections (TAB / DNS / SEARCH / PRIVACY STACK), light/dark via `prefers-color-scheme`, 414-line popup + 198-line background event-page, README + PRIVACY.md. SearXNG sidecar language threading for all four engines + cache-key fix.
+- **2026-05-07** — **Privacy Stack Viewer Phase 2: dnstap pipeline + per-query forwarder attribution.** Repo-managed Homebrew formula builds Unbound with `--enable-dnstap --with-protobuf-c`. Python `privacy_stack_dns_observer` package: dnstap fstrm reader + 10-min in-memory ring buffer + Unix-socket IPC + native-messaging stdio bridge. Root-owned LaunchDaemon starts the collector at boot. Extension bumped to 0.2.0 with `nativeMessaging` permission; attribution row renders status-tinted with reason-aware help text. End-to-end pipeline tested live. [Build log](/logbook/2026-05-07-custom-librewolf-dnstap-attribution)
+- **2026-05-08** — Phase 2 follow-ups. **DNS0.eu removed** — operator shut down in 2025-10 (BleepingComputer, Cybernews, Privacy Guides #3152); slot stays open until a candidate passing the documented bar (anonymous, DoT/853, valid cert, non-Five-Eyes, sustainable) is identified. **Control D IPs corrected** — prior config used `76.76.2.0` / `76.76.10.0` (`/24` network addresses, not host endpoints); real Free Resolver endpoints are `.11`. **Attribution-window lookahead** — Firefox's `webRequest.onBeforeRequest` fires before connect-time DNS resolution, so dnstap responses land a few hundred ms *after* `navStartedAtMs`; pre-only correlation was systematically rejecting healthy events. Bidirectional window fixes the "current host: unknown" failure. **SearXNG engine timeout capped at 6 s** (down from 12 s) — TTFB measured at 13.8 s vs 4–6 s, ~60% latency reduction.
+
+---
+
+<br />
+
+### Build logs
+
+- [Day One — The Stack Lands](/logbook/2026-04-23-custom-librewolf-day-one)
+- [Hardening Overlay + Per-Profile Personalisation](/logbook/2026-04-24-custom-librewolf-hardening-overlay)
+- [FPP on, RFP off — and the Multi-Engine search-curl](/logbook/2026-05-01-custom-librewolf-fpp-migration)
+- [curl_cffi Inlined; the FPP Audit Follow-ups](/logbook/2026-05-02-custom-librewolf-curl-cffi-inline)
+- [Tier B v1.0 + Daily-Use Issue Triage](/logbook/2026-05-03-custom-librewolf-tier-b-issues)
+- [dnstap Pipeline + Privacy Stack Viewer Phase 2](/logbook/2026-05-07-custom-librewolf-dnstap-attribution)
+
+---
+
+<br />
+
+### Philosophy
+
+This is not a fork, a distribution, or a brand. It's a deliberately small repo that turns *somebody else's hardened browser* into *the one this specific machine runs*, against this specific threat model, with every decision recorded against the failure mode it avoids. The DNS stack, the SearXNG instance, and the WebExtension exist because the browser alone cannot enforce its posture from inside its own process — the network, the resolver, and the search lane are part of the same surface, and any link in that chain that points off-machine becomes the weak link.
+
+**The browser is the artifact. The chain is the system.**

@@ -1,0 +1,170 @@
+---
+title: "Custom LibreWolf: Hardening Overlay + Per-Profile Personalisation"
+date: "2026-04-24"
+tags: ["custom-librewolf", "librewolf", "arkenfox", "policies", "dns", "dot", "userchrome"]
+project: custom-librewolf
+images:
+  - "/artifacts/custom-librewolf/dock-launchers.png"
+anomaly: false
+---
+
+Day 2 turned yesterday's working stack into a proper dotfiles repo. The arkenfox baseline got layered under the project overlay, `policies.json` landed and started locking in the in-bundle prefs, per-profile overlays appeared so `daily` and `clean` could diverge on engine state, and the DNS resolver got DoT upstreams that coexist with the VPN. By end-of-day there was a top-level `install.sh` that brought every piece up from a fresh checkout.
+
+<br />
+
+### The three-layer pref stack
+
+Last-write-wins, concatenated in this order:
+
+1. **Arkenfox baseline** — fetched fresh by `librewolf/updater.sh`, sha256-pinned in `librewolf/arkenfox.sha256`.
+2. **Arkenfox overlay** (in `user-overrides.js`, group 1) — values we want to reinforce or pin so they survive arkenfox upstream changes: CRLite enforcement, WebRTC ICE-leak fixes, `cookieBehavior=5`, fingerprinter blocklist, referrer hardening, remote phone-home pins.
+3. **LibreWolf-specific additions** (group 2) — Mozilla surface arkenfox upstream may not yet cover: Scotch Bonnet kill, unused Web APIs (WebGPU / VR / sensors / battery / gamepad / push / notifications / TTS / STT), GPC on, cert pinning strict, search suggestions off.
+4. **User-specific** (group 3) — Day 1 explicit prefs (yesterday's set) + media / video tuning. Concatenated **last** so user choices win when something collides.
+
+`librewolf/updater.sh` writes `librewolf/user.js` and, for each `user-overrides-<profile>.js` file present, one `user.<profile>.js` variant. `librewolf/install-profile-files.sh` symlinks the appropriate variant into each profile dir — picking `user.<name>.js` if it exists, otherwise falling back to `user.js`.
+
+`librewolf/verify.sh` runs against the live profile after a launch and asserts every declared pref survives in `prefs.js`. Without verification, a typo in `user-overrides.js` would silently fail (LibreWolf ignores malformed `user_pref` lines).
+
+---
+
+<br />
+
+### `policies.json` lands
+
+The file the weekly update agent has been silently skipping since yesterday now exists. Locks in:
+
+- `DNSOverHTTPS = disabled` (belt-and-braces with the `trr.mode = 5` pref)
+- `OfferToSaveLogins = false`
+- `NetworkPrediction = false`
+- `DisableFormHistory`
+- `Certificates.ImportEnterpriseRoots = false` (no silent trust via system keychain)
+- `ExtensionSettings` — force-installs `enhanced-h264ify@maple3142` (manual install from yesterday → policy force-install today), `@testpilot-containers`, `{c607c8df-…}` Temporary Containers, plus uBlock Origin (preserves the LibreWolf-bundled block).
+
+The merge contract between this task and the container-extension fragment from yesterday: both extension IDs must appear under `policies.ExtensionSettings` in the final `policies.json` — additive, not replacing. The hardening task already owns `ExtensionSettings`, so the containers fragment merges in alongside its existing entries.
+
+---
+
+<br />
+
+### Per-profile overlays
+
+The base `user-overrides.js` covers every named profile. Profile-specific files add posture-specific prefs on top:
+
+| File | Applies to | Purpose |
+|---|---|---|
+| `librewolf/user-overrides.js` | every profile | Shared baseline (arkenfox overlay + LibreWolf additions + user-specific) |
+| `librewolf/user-overrides-clean.js` | `clean` only | Pseudonymous posture: WebGL off, session-only cookies, sanitize-on-shutdown set |
+
+Concat order: `arkenfox baseline → user-overrides.js → user-overrides-<profile>.js`. To add a new overlay (e.g. for a `work` profile): drop `librewolf/user-overrides-work.js` into the repo, rerun `./librewolf/updater.sh && ./librewolf/install-profile-files.sh`. The scripts pick it up automatically; add the profile name to `TARGET_PROFILES` in the installer if it's not already covered.
+
+**Clean profile gets pseudonymous posture:**
+
+```javascript
+// user-overrides-clean.js
+user_pref("webgl.disabled", true);
+user_pref("network.cookie.lifetimePolicy", 2);
+user_pref("privacy.sanitize.sanitizeOnShutdown", true);
+
+// v2 schema (LibreWolf 128+)
+user_pref("privacy.clearOnShutdown_v2.cache", true);
+user_pref("privacy.clearOnShutdown_v2.cookiesAndStorage", true);
+user_pref("privacy.clearOnShutdown_v2.formdata", true);
+user_pref("privacy.clearOnShutdown_v2.historyFormDataAndDownloads", true);
+
+// v1 schema (older LibreWolf, harmless on newer)
+user_pref("privacy.clearOnShutdown.cache", true);
+user_pref("privacy.clearOnShutdown.cookies", true);
+user_pref("privacy.clearOnShutdown.history", true);
+user_pref("privacy.clearOnShutdown.sessions", true);
+user_pref("privacy.clearOnShutdown.formdata", true);
+user_pref("privacy.clearOnShutdown.downloads", true);
+user_pref("privacy.clearOnShutdown.offlineApps", true);
+```
+
+Both v1 and v2 clear-on-shutdown schemas are set so this works on any LibreWolf version regardless of which schema the build understands.
+
+**Why DNT is not in the clean overlay:** GPC supersedes DNT for the CCPA / CPA legal-meaningfulness use case, and DNT's rare-on-by-default state is itself fingerprinting-identifying (Mozilla deprecated DNT for that exact reason). Setting both is counterproductive.
+
+---
+
+<br />
+
+### userChrome.css — the personalisation layer
+
+`toolkit.legacyUserProfileCustomizations.stylesheets = true` flips the switch that lets `chrome/userChrome.css` apply. The CSS hides the native tab bar entirely (Sidebery is the tab UI now) and tightens a few padding values around the URL bar.
+
+```css
+/* hide the native tab strip - Sidebery owns tabs */
+#TabsToolbar { visibility: collapse !important; }
+
+/* compress urlbar height to match Sidebery's row height */
+#urlbar { min-height: 28px !important; }
+```
+
+Daily profile extension set after install:
+
+- Multi-Account Containers (`@testpilot-containers`) — per-tab cookie jars
+- Container Tabs Shortcuts (`firefox.container-shortcuts@strategery.io`) — keyboard nav between containers
+- Sidebery — vertical tab tree
+- uBlock Origin (`uBlock0@raymondhill.net`) — default-deny tracker / ad blocking
+- Skip Redirect (`skipredirect@sblask`) — strip aggregator redirect URLs
+
+<div class="diagram-section">
+  <a href="/artifacts/custom-librewolf/dock-launchers.png" class="lightbox">
+    <img src="/artifacts/custom-librewolf/dock-launchers.png" alt="macOS Dock — LibreWolf-Daily.app and LibreWolf-Clean.app launchers, plain LibreWolf.app absent" loading="lazy" />
+  </a>
+</div>
+
+The two profile launcher bundles installed by `librewolf/launchers/install-launchers.sh` sit in `/Applications/Browsers/` and go in the Dock. The plain `LibreWolf.app` is deliberately not in the Dock — every browser session goes through a profile launcher.
+
+---
+
+<br />
+
+### DNS — DoT escalation for VPN coexistence
+
+The original day-1 stack did full recursion from the roots with no upstream forwarders. That's the cleanest posture (no "upstream" provider seeing the query stream), but it breaks under a VPN that intercepts UDP/53. The fix: optional DoT upstreams that coexist with the VPN by going to port 853 over TLS, which the VPN can't transparently rewrite.
+
+Initial upstream set (refined later — DNS0.eu got removed 2026-05-08 after the operator shut down, Control D IPs got corrected from `/24` network addresses to host `.11` endpoints):
+
+```
+forward-zone:
+  name: "."
+  forward-tls-upstream: yes
+
+  forward-addr: 9.9.9.9@853#dns.quad9.net           # Quad9
+  forward-addr: 194.242.2.2@853#dns.mullvad.net     # Mullvad
+  forward-addr: 76.76.2.11@853#dns.controld.com     # Control D Free
+```
+
+AAAA filtering stays on for the IPv6 black-hole (this Mac has no usable IPv6; AAAA responses that resolve cause Connection-refused-shaped delays). `qname-minimisation` stays on so each upstream sees only what it strictly needs to resolve the next step.
+
+**Status note:** this task's work lived only in a kanban checkpoint ref on commit day and was not merged to `main` during review. Recovered and merged 2026-05-03. Functionally landed today; provenance reconciled later.
+
+---
+
+<br />
+
+### Dotfiles wrap — top-level `install.sh`
+
+Last task of the day pulled the previous day's pieces into a single orchestrator. `./install.sh` is idempotent — safe to re-run — and **not** to be run as root; sub-scripts prompt for sudo only when they need it (DNS service start, app-bundle reapply). Skip env vars defined for partial reinstalls:
+
+```sh
+SKIP_DNS=1 SKIP_SEARXNG=1 ./install.sh     # just the LibreWolf pieces
+SKIP_HOOKS=1 ./install.sh                  # skip launchd agent install
+```
+
+Log: `~/Library/Logs/browser_custom-install.log`. The top-level `README.md` got the **WHY** treatment (each section names the failure mode the choice avoids); `GROUND_TRUTH.md` carries the **WHAT/WHERE**; `MANUAL_SETUP.md` carries the **DO-THIS**. Three documents, three responsibilities.
+
+---
+
+<br />
+
+### End-to-end workflow shakedown — load-bearing discoveries
+
+The shakedown surfaced two discoveries that stayed load-bearing for weeks:
+
+1. **`fission.autostart` is default-on in LibreWolf 150.** Not pinned in `user-overrides.js`; the live profile relies on LibreWolf's compiled default. Verified via the live profile (`prefs.js` has no entry → default applies; default has been `true` since Firefox ~94). The "lower `dom.ipc.processCount` in exchange for RAM" decision from yesterday stays pending — flipping it would coalesce unrelated sites into shared content processes, which is a real isolation downgrade for a logged-in profile.
+2. **macOS Apple Silicon content sandbox ceiling is 5.** LibreWolf doesn't pin `security.sandbox.content.level` in `prefs.js`; default applies. Bumping above the default needs verifying that the higher level works on this macOS + LibreWolf build; not done blindly.
+
+Both are documented as **explicit decision points** in `GROUND_TRUTH.md` — recording them as "considered, deliberately left at default" stops a future "should we change this?" question from relitigating the same ground.

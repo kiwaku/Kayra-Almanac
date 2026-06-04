@@ -1,0 +1,202 @@
+---
+title: "Custom LibreWolf: Day One — The Stack Lands"
+date: "2026-04-23"
+tags: ["custom-librewolf", "librewolf", "dns", "searxng", "macos", "dotfiles"]
+project: custom-librewolf
+images:
+  - "/artifacts/custom-librewolf/dnsmasq-log-tail.png"
+anomaly: false
+---
+
+Eight tasks, one sitting. The repo went from empty to a working privacy stack — local DNS, SearXNG, hardened LibreWolf prefs, two profiles, dock launchers, update cadence, and a comprehensive `MANUAL_SETUP.md` — committed to disk by the end of the day.
+
+<br />
+
+### Decisions to record first
+
+Before writing any code, `GROUND_TRUTH.md` and `logs/ACTIVITY_LOG.md` got baselined. The split: `GROUND_TRUTH` is the canonical state record (what's decided, where things live, what's intentionally off); `ACTIVITY_LOG` is the append-only history record (newest at bottom, ISO 8601 UTC timestamps, format-locked).
+
+Five load-bearing decisions documented up front, so every later task lands in the same posture:
+
+- **Install path override:** `/Applications/Browsers/LibreWolf.app` — not the macOS default. Every script in the repo targets this path; it's not parameterised.
+- **OCSP / CRLite stays on** — the metadata leak from OCSP responders is real but small; revoked-cert protection beats principled blocking.
+- **DoH off** (`network.trr.mode = 5`) — all DNS goes through the local stack; if the stack breaks, browsing breaks visibly. Intentional failure mode.
+- **H.264 preferred over VP9 / AV1** — hardware decode on Apple Silicon. Software VP9 / AV1 buffers live in unified memory and balloon per-tab.
+- **Two profiles, no container-only isolation** — Multi-Account Containers share per-profile databases; a real second profile gives independent storage graphs.
+
+---
+
+<br />
+
+### Day 1 about:config prefs
+
+Staged into `librewolf/user-overrides.js` in the `user.js` syntax (`user_pref(...)`). Sectioned by purpose so later hardening tasks append within their section rather than overwriting:
+
+```javascript
+// --- Startup / session ---
+user_pref("browser.startup.page", 0);
+user_pref("browser.sessionstore.resume_from_crash", false);
+user_pref("browser.newtabpage.enabled", false);
+user_pref("browser.newtabpage.activity-stream.showSponsored", false);
+user_pref("browser.newtabpage.activity-stream.feeds.topsites", false);
+
+// --- URL bar / download / tab / UI quality-of-life ---
+user_pref("browser.urlbar.suggest.quicksuggest.sponsored", false);
+user_pref("browser.urlbar.trimURLs", false);
+user_pref("browser.urlbar.trimHttps", false);
+user_pref("browser.download.useDownloadDir", false);
+user_pref("browser.tabs.closeWindowWithLastTab", true);
+user_pref("browser.ctrlTab.sortByRecentlyUsed", true);
+user_pref("layout.spellcheckDefault", 2);
+user_pref("findbar.modalHighlight", true);
+
+// --- Speculative connection kills (feeds clean DNS logs) ---
+user_pref("network.http.speculative-parallel-limit", 0);
+user_pref("network.dns.disablePrefetch", true);
+user_pref("network.prefetch-next", false);
+user_pref("network.predictor.enabled", false);
+user_pref("browser.urlbar.speculativeConnect.enabled", false);
+
+// --- DNS resolver (explicit off, not just 0) ---
+user_pref("network.trr.mode", 5);
+user_pref("network.trr.uri", "");
+
+// --- Trust roots ---
+user_pref("security.enterprise_roots.enabled", false);
+```
+
+`browser.urlbar.speculativeConnect.enabled = false` is the under-appreciated one. The other speculative-connect prefs leave a back-door open where the URL bar opportunistically warms TCP / TLS to candidate sites as you type; killing it stops the resolver from getting half-typed hostnames before the user commits to the URL.
+
+Scaffolded placeholder section headers for Media / video and six DEFERRED hardening sections (arkenfox, TLS/PKI, WebRTC, Fingerprinting, Service workers / push, Remote settings) so later tasks append cleanly.
+
+---
+
+<br />
+
+### Local DNS stack — dnsmasq → Unbound
+
+`dns/dnsmasq.conf` listens on `127.0.0.1:53`, forwards to `127.0.0.1:5335`, logs queries to `~/Library/Logs/dnsmasq/queries.log`. `dns/unbound.conf` does full recursion from the root servers — no upstream forwarders at this stage (DoT escalation arrived 2026-04-24).
+
+Knobs that matter:
+
+```
+# unbound.conf
+server:
+  interface: 127.0.0.1@5335
+  qname-minimisation: yes
+  hide-identity: yes
+  hide-version: yes
+  log-queries: no             # dnsmasq does the per-query log
+  do-ip6: no                  # this Mac has no usable IPv6
+  prefetch: yes
+  prefetch-key: yes
+```
+
+```
+# dnsmasq.conf
+listen-address=127.0.0.1
+no-resolv
+server=127.0.0.1#5335
+log-queries
+log-facility=/Users/.../Library/Logs/dnsmasq/queries.log
+```
+
+`dns/install.sh` is idempotent: starts both as brew services, points the active network interface at `127.0.0.1`, installs a launchd plist (`com.user.dnsmasq-logrotate.plist`) for daily log rotation keeping 14 dated archives.
+
+A tail of the query log makes the "you can see every name your Mac looks up" claim visible:
+
+<div class="diagram-section">
+  <a href="/artifacts/custom-librewolf/dnsmasq-log-tail.png" class="lightbox">
+    <img src="/artifacts/custom-librewolf/dnsmasq-log-tail.png" alt="dnsmasq query log tail — real DNS queries flowing through the local stack" loading="lazy" />
+  </a>
+</div>
+
+---
+
+<br />
+
+### SearXNG via docker-compose
+
+`searxng/docker-compose.yml` pulls `searxng/searxng:latest`, binds to `127.0.0.1:8888:8080` — loopback only, never `0.0.0.0`. `settings.yml.template` is committed with `secret_key: "__REPLACE_ME__"`; `install.sh` runs `openssl rand -hex 64` once into `searxng/.secret_key` (gitignored), substitutes into a rendered `settings.yml` (also gitignored), then `docker compose up -d`. The template-and-substitute pattern means re-runs don't rotate the key.
+
+Engine block, pinned up front so it survives later weight tuning:
+
+- Google (all variants), Bing (all variants), Yandex (all variants) — **disabled**. These are the aggregators; their absence is the privacy win.
+- Weighted enabled set at end-of-day: DuckDuckGo (2), Brave (0.5), Mojeek, Qwant, Startpage.
+
+`searxng/opensearch.xml` is an OpenSearch descriptor — one-click "Add Search Engine" inside LibreWolf for the local SearXNG.
+
+**Runtime detection gotcha (later same day):** `install.sh` was extended to handle Colima (the machine's current runtime) — detects `docker compose` v2 subcommand and the legacy `docker-compose` binary; offers to `brew install --cask orbstack` only when no runtime is present. A stale `"credsStore": "desktop"` left in `~/.docker/config.json` from a removed Docker Desktop made even public image pulls fail with `docker-credential-desktop: executable file not found`; removed that key from the config.
+
+---
+
+<br />
+
+### Video playback memory fixes
+
+Populated the Media / video section in `user-overrides.js`:
+
+- **Hardware decode prefs** — `media.hardware-video-decoding.enabled`, `…force-enabled`, `media.ffvpx.enabled`, `media.av1.enabled`, `gfx.webrender.all`. `force-enabled` is the load-bearing one; LibreWolf occasionally ships the auto-detect path conservatively and silently degrades to software decode.
+- **Media cache trim** — `media.memory_cache_max_size` dropped from the default ~512 MB to 64 MB; combined cap 128 MB; readahead and resume thresholds halved. Tradeoff: scrubbing back past the smaller window re-buffers instead of seeking in-cache.
+- **Tab unloading** — `browser.tabs.unloadOnLowMemory` + `browser.tabs.unloadTabInContextMenu`. Backgrounded tabs drop toward zero on memory pressure; explicit unload available from the tab context menu.
+
+`enhanced-h264ify` install path chosen: **manual install from AMO**, not force-installed via `policies.json`. Two reasons — the policies layer wasn't built yet, and per-session toggle is occasionally wanted for the small set of 4K60 VP9-only streams. (Later moved to policy force-install when the hardening overlay landed.)
+
+`dom.ipc.processCount` and `fission.autostart` left as **decision pending** — judgement calls between RAM and site isolation that depend on what the user keeps open while browsing untrusted content.
+
+**Realistic target after fixes:** 300–600 MB per playing YouTube 1080p tab; ~50 MB backgrounded / unloaded. If `about:processes` (not Activity Monitor's inflated Memory column) still shows >1 GB after the fixes are applied, treat it as a specific leak and hunt it in `about:memory`.
+
+---
+
+<br />
+
+### Two profiles + containers + dock launchers
+
+Profile manager flow stays manual (`librewolf -P`). The "Use the selected profile without asking at startup" checkbox **must stay off** — the dock launchers pass `-P <name>` explicitly and need the prompt suppressed only for that invocation, not globally.
+
+`librewolf/policies-containers.json` force-installs Multi-Account Containers (`@testpilot-containers`) and Temporary Containers (`{c607c8df-14a7-4f28-894f-29e8722976af}`). Temporary Containers' per-profile runtime config (automatic mode, delete-after-last-tab, exclude-domains) can't be policy-installed — it lives in per-profile IndexedDB; documented as a one-time per-profile step in `MANUAL_SETUP.md`.
+
+`librewolf/install-profile-files.sh` is idempotent. For each of `daily` and `clean`: find the profile dir under `~/Library/Application Support/LibreWolf/Profiles/*.<name>`, copy `user-overrides.js`, ensure `chrome/` exists, copy `userChrome.css` + `userContent.css`.
+
+AppleScript launchers compiled with `osacompile`:
+
+```applescript
+-- LibreWolf-Daily.applescript
+do shell script "/Applications/Browsers/LibreWolf.app/Contents/MacOS/librewolf --no-remote -P 'daily' > /dev/null 2>&1 &"
+```
+
+`--no-remote` is load-bearing: without it, the second launcher attaches to the first profile's running process instead of opening its own. Both profiles can run side-by-side. Adding the bundles to the Dock is manual (Finder drag). The plain `LibreWolf.app` does **not** belong in the Dock.
+
+---
+
+<br />
+
+### Update cadence — weekly reapply + daily advisory tripwire
+
+`brew upgrade --cask librewolf` replaces the `.app` bundle wholesale, wiping any in-bundle config (`Contents/Resources/distribution/policies.json`, `Contents/Resources/mozilla.cfg`, `Contents/Resources/defaults/pref/autoconfig.js`). Two launchd agents under `scripts/launchd/`:
+
+- **`com.user.librewolf-update`** — Sunday 03:00 weekly. `brew upgrade --cask librewolf`; then reapplies `librewolf/policies.json` (and `mozilla.cfg` + `autoconfig.js` if present) into the bundle via `sudo cp`. Warns and skips if `librewolf/policies.json` is absent (it was, on day 1 — landed 2026-04-24).
+- **`com.user.moz-advisory`** — Daily 09:00. Polls `https://www.mozilla.org/en-US/security/advisories/feed/rss/`, stores the last-seen GUID in `~/Library/Caches/moz-advisory-last-seen`, posts a macOS notification when a new GUID appears.
+
+`RunAtLoad=false` on both — they run only at their scheduled time, not on login. The reapply uses `sudo cp` to write into the app bundle; a NOPASSWD sudoers rule scoped to the exact `cp` paths is required for unattended runs (documented in `MANUAL_SETUP.md`).
+
+---
+
+<br />
+
+### MANUAL_SETUP.md — the ordered walkthrough
+
+The last task of the day: a comprehensive walkthrough that interleaves every click and command with **MANUAL** or **AUTO** tags, so a fresh Mac can be brought to the same state in one read-through. The split lets the user predict where automation ends and their own attention begins (sudoers entries, profile creation, dock placement, Temporary Containers per-profile runtime config).
+
+---
+
+<br />
+
+### What's intentionally not yet done
+
+- **Arkenfox layering** — research deferred to a separate task. Day 1 prefs are user-curated; the arkenfox baseline + project overlay arrives 2026-04-24.
+- **`policies.json`** — the file referenced by the update agent doesn't exist yet. The agent warns and skips. Lands with the hardening overlay tomorrow.
+- **DoT to specific upstreams** — Unbound is full-recursive today. DoT-to-Quad9/Mullvad/Control D arrives with VPN-coexistence work on 2026-04-24.
+- **`userChrome.css`** — design brief deferred. The Sidebery + hidden tab bar layout arrives with the personalisation layer 2026-04-24.
+
+The interesting property of the day: the *posture* was complete by end-of-day — no third-party gates, every component on loopback, two-profile separation — even though several specific surfaces (arkenfox, DoT, custom chrome) hadn't landed yet. Eight tasks were enough to commit the philosophy to disk in a form later sessions could only refine.

@@ -1,0 +1,244 @@
+---
+title: "Custom LibreWolf: dnstap Pipeline + Privacy Stack Viewer Phase 2"
+date: "2026-05-07"
+tags: ["custom-librewolf", "librewolf", "webextension", "dns", "dnstap", "unbound", "native-messaging"]
+project: custom-librewolf
+images:
+  - "/artifacts/custom-librewolf/popup-hero.png"
+anomaly: false
+---
+
+Phase 1 of the Privacy Stack Viewer shipped 2026-05-04 as an MV3 WebExtension with four popup sections — TAB / DNS / SEARCH / PRIVACY STACK — covering every data source except DNS forwarder attribution, which sat as a placeholder pending the dnstap pipeline. Phase 2 lands that pipeline: Unbound dnstap → Python collector with a 10-minute in-memory ring buffer → Unix-socket IPC → native-messaging stdio bridge → extension. The popup now shows, for each tab, which upstream forwarder resolved its hostname.
+
+<br />
+
+### Why dnstap, not querylog parsing
+
+The dnsmasq query log already records every DNS lookup the system performs. But dnsmasq sees the lookup from the cache-forwarder layer — it doesn't know which Unbound *upstream* served the cache miss, only that the answer came from `127.0.0.1:5335`. The information we want — which of Quad9 / Mullvad / Control D actually answered the recursive query — lives one layer deeper, inside Unbound.
+
+dnstap is Unbound's protobuf-over-Unix-socket telemetry channel. Every resolver event (CLIENT_QUERY, RESOLVER_QUERY, RESOLVER_RESPONSE) gets emitted with the upstream IP attached. That's the data the extension needs.
+
+---
+
+<br />
+
+### Building Unbound with dnstap
+
+Stock Homebrew Unbound ships **without** `dnstap` support — the upstream cask doesn't enable it. Building from source via Homebrew's formula system instead:
+
+`dns/homebrew/unbound.rb` — a local formula:
+
+```ruby
+class Unbound < Formula
+  desc "Validating, recursive, caching DNS resolver"
+  homepage "https://nlnetlabs.nl/projects/unbound/"
+  url "https://nlnetlabs.nl/downloads/unbound/unbound-1.24.0.tar.gz"
+  sha256 "..."
+
+  depends_on "openssl@3"
+  depends_on "protobuf-c"
+
+  def install
+    system "./configure",
+      "--prefix=#{prefix}",
+      "--sysconfdir=#{etc}",
+      "--localstatedir=#{var}",
+      "--enable-dnstap",
+      "--with-protobuf-c=#{Formula["protobuf-c"].opt_prefix}",
+      "--with-ssl=#{Formula["openssl@3"].opt_prefix}"
+    system "make", "install"
+  end
+end
+```
+
+Three subtleties that cost an hour each:
+
+- **Embedded `fstrm` in Unbound 1.24+.** Older guides require `libfstrm` as a separate dependency. Unbound's own fstrm vendoring eliminated that; explicitly requesting `--with-libfstrm` would fail on a stock checkout. The build needs `--with-protobuf-c` only.
+- **`--enable-dnstap` is hollow without `protobuf-c`.** If the configure step silently skips `protobuf-c` (e.g. because the path hint is wrong), `--enable-dnstap` succeeds but the resulting binary has no dnstap implementation. `dns/install.sh` verifies the binary is dynamically linked against `protobuf-c` after `brew install` returns and refuses to proceed if not.
+- **The `dnstap:` clause is a top-level section.** Unbound's config parser requires `dnstap:` at the same level as `server:` — placing it inside `server:` produces a syntax error. Not obvious from the man page; obvious from the source.
+
+---
+
+<br />
+
+### Unbound config changes
+
+```
+# unbound.conf
+
+server:
+  # ... existing config ...
+  # chroot disabled: default chroots to sysconfdir, which blocks
+  # the dnstap socket path under /opt/homebrew/var/run.
+  chroot: ""
+
+dnstap:
+  dnstap-enable: yes
+  dnstap-socket-path: "/opt/homebrew/var/run/privacy-stack-dns-observer.sock"
+  dnstap-send-identity: no
+  dnstap-send-version: no
+  dnstap-log-resolver-query-messages: yes
+  dnstap-log-resolver-response-messages: yes
+  dnstap-log-client-query-messages: yes
+  dnstap-log-client-response-messages: yes
+```
+
+**Chroot disabled deliberately.** The default Unbound chroot to `sysconfdir` (`/opt/homebrew/etc/unbound`) blocks the dnstap Unix socket path under `/opt/homebrew/var/run`. The alternative — chroot-path remapping — would require recreating the full Unbound lib tree under the chroot root for shared-library access. Disabled rather than worked around; the observability gain outweighs the chroot's marginal benefit on a single-user laptop where the only user is also root.
+
+---
+
+<br />
+
+### The collector
+
+`dns/observer/privacy_stack_dns_observer/` is a Python package, no external dependencies beyond stdlib + a vendored protobuf decoder:
+
+| Module | Role |
+|---|---|
+| `fstrm.py` | fstrm frame reader — handles the Unix-socket framing layer |
+| `protobuf_decoder.py` | decodes dnstap protobuf messages (CLIENT_QUERY, RESOLVER_RESPONSE, …) |
+| `dns_wire.py` | decodes the DNS wire-format payload inside each dnstap message |
+| `collector.py` | reads from the Unix socket, maintains the 10-minute ring buffer, serves `query.sock` IPC |
+| `native_host.py` | native-messaging stdio bridge — what the browser extension spawns |
+| `constants.py` | `FORWARDER_BY_IP` map, socket paths, attribution window constants |
+| `protocol.py` | IPC message schemas (`lookup_forwarder` request / response) |
+
+The ring buffer is **in-memory only** — 10-minute window or 4096 events, whichever fills first. No disk log of DNS events. The IPC server accepts `lookup_forwarder` requests with `(host, nav_started_at_ms)` and returns `(forwarder, reason)` — the forwarder IP that resolved that host within the attribution window around the navigation timestamp, or a typed reason if no evidence is available.
+
+`FORWARDER_BY_IP` is the load-bearing map:
+
+```python
+FORWARDER_BY_IP = {
+    "9.9.9.9":       "Quad9",
+    "194.242.2.2":   "Mullvad",
+    "76.76.2.11":    "Control D Free",
+    "76.76.10.11":   "Control D Free",
+}
+```
+
+Anything that isn't in the map shows up in the popup as `via unknown forwarder` with the IP — which surfaces immediately if Unbound is silently falling back to something we didn't configure.
+
+---
+
+<br />
+
+### LaunchDaemon — startup ordering matters
+
+`com.user.privacy-stack-dns-observer.plist` runs as root, creates the observer socket, chowns it to the invoking user, then drops privileges and serves IPC requests.
+
+**The ordering subtlety:** Unbound attempts to connect to the dnstap Unix socket **exactly once at startup**. If the socket doesn't exist at that moment, Unbound silently skips dnstap for the lifetime of the process — there's no retry, no warning, no log entry. (This is by design — Unbound treats dnstap as optional telemetry that shouldn't block startup if it fails.)
+
+So `dns/install.sh` was updated to:
+
+1. Install / upgrade the custom Unbound formula (`brew install dns/homebrew/unbound.rb`).
+2. Pre-install `setuptools` into the observer venv (Python 3.14 venvs no longer ship `setuptools` by default; packages that use `setup.py` as a build backend break without it).
+3. Install the observer Python package into the venv (`pip install -e dns/observer/`).
+4. Install the LaunchDaemon plist and `launchctl load` it — this creates the socket.
+5. Verify `protobuf-c` is dynamically linked into the Unbound binary; bail if not.
+6. **Then** restart Unbound (`brew services restart unbound`) — at this point the socket exists, so Unbound's one-shot connect succeeds.
+
+If the order were reversed, Unbound would silently miss dnstap forever.
+
+---
+
+<br />
+
+### Extension changes — manifest, IPC, attribution row
+
+`manifest.json` bumped to `0.2.0` with `nativeMessaging` added:
+
+```json
+{
+  "manifest_version": 3,
+  "version": "0.2.0",
+  "permissions": [
+    "tabs", "webRequest", "webRequestBlocking",
+    "nativeMessaging"
+  ],
+  "background": {
+    "scripts": ["background/background.js"]
+  }
+}
+```
+
+**`background.scripts` over `service_worker`** — Firefox MV3 does not yet fully support service workers the way Chrome does; the scripts-based event-page form works across Firefox versions we care about. (Phase 1 noted this; phase 2 inherits.)
+
+**`webRequestBlocking` in the permissions list but never returning a `BlockingResponse`** — Firefox gates `getSecurityInfo()` (the API the TAB section uses for TLS state) on the listener being declared `blocking`. The listener is read-only by construction. Declared for API access, not to block any request.
+
+**`navStartedAtMs` per main-frame navigation:**
+
+```javascript
+// background.js — phase 2 addition
+browser.webNavigation.onBeforeNavigate.addListener((details) => {
+  if (details.frameId !== 0) return;
+  tabRecords.set(details.tabId, {
+    ...tabRecords.get(details.tabId),
+    navStartedAtMs: details.timeStamp,
+    host: new URL(details.url).hostname,
+  });
+});
+```
+
+When the popup opens, it sends a `lookup_forwarder` IPC request with the active tab's `host` and `navStartedAtMs`. The collector matches against its ring buffer and returns either a forwarder name or a typed failure reason.
+
+**Failure modes are typed.** The attribution row renders with status-tinted toning and reason-aware help text:
+
+| Reason | Status | Help text |
+|---|---|---|
+| `helper_missing` | red | "Native helper not installed. Run `librewolf-extensions/privacy-stack-viewer/install-native-host.sh`." |
+| `collector_unavailable` | red | "DNS collector not running. Check `launchctl list \| grep privacy-stack`." |
+| `no_evidence` | yellow | "No dnstap event matched this navigation. Window: ±N ms." |
+| `ambiguous` | yellow | "Multiple forwarders resolved this host within the attribution window. Showing most recent." |
+
+---
+
+<br />
+
+### `install-native-host.sh`
+
+Native messaging requires an OS-level manifest registering the helper binary with the browser. Mozilla's manifest path is `~/Library/Application Support/Mozilla/NativeMessagingHosts/`; LibreWolf reads from `~/Library/Application Support/librewolf/NativeMessagingHosts/`.
+
+The installer drops the manifest into Mozilla's directory and **symlinks** LibreWolf's path to it, so the manifest doesn't get duplicated and any future Mozilla-spec change applies to both. Manifest body:
+
+```json
+{
+  "name": "privacy_stack_dns_observer",
+  "description": "Local DNS forwarder attribution for the Privacy Stack Viewer extension",
+  "path": "/Users/kayraozturk/browser_custom/dns/observer/.venv/bin/privacy-stack-dns-native-host",
+  "type": "stdio",
+  "allowed_extensions": ["privacy-stack-viewer@browser-custom.local"]
+}
+```
+
+The path is absolute — Mozilla won't expand `~`. The `allowed_extensions` is the extension's manifest `browser_specific_settings.gecko.id`; without it, any extension could spawn the helper.
+
+---
+
+<br />
+
+### End-to-end test
+
+Open LibreWolf daily → navigate to `https://en.wikipedia.org` → click the Privacy Stack Viewer toolbar icon. The popup opens, DNS section shows the forwarder list, and the attribution row reads: `via Quad9` (or whichever upstream Unbound actually used for that recursion).
+
+<div class="diagram-section">
+  <a href="/artifacts/custom-librewolf/popup-hero.png" class="lightbox">
+    <img src="/artifacts/custom-librewolf/popup-hero.png" alt="Privacy Stack Viewer popup with phase 2 attribution row — TAB / DNS (with forwarder attribution) / SEARCH / PRIVACY STACK" loading="lazy" />
+  </a>
+</div>
+
+The shipped version still has one rough edge — the original attribution correlation window was pre-only, but Firefox's `webRequest.onBeforeRequest` fires when the request is queued, *before* the connect-time DNS resolution, so the dnstap response message lands a few hundred ms **after** `navStartedAtMs` in real-world traffic. Pre-only correlation was systematically rejecting healthy events with `no_evidence`. Fix landed 2026-05-08 as a bidirectional `LOOKAHEAD_WINDOW_MS`. The hero shot above is post-fix.
+
+---
+
+<br />
+
+### What the popup is now
+
+After phase 2, the popup reads like this:
+
+- **TAB** — `en.wikipedia.org · 208.80.154.224 · TLS 1.3 (AES_256_GCM) · ECH accepted · DigiCert · HSTS ✓`
+- **DNS** — `via Quad9` · resolver `127.0.0.1:5335 (Unbound)` · upstream pool: Quad9 / Mullvad / Control D
+- **SEARCH** — `(not the active tab — only renders on 127.0.0.1:8888)`
+- **PRIVACY STACK** — `7 sub-requests across 3 third-party hostnames: upload.wikimedia.org, en.m.wikipedia.org, login.wikimedia.org` · FPP on · ETP strict · WebRTC off
+
+That's the actual posture, read live from the actual stack, not derived from configuration. The artifact justifies the chain.

@@ -1,0 +1,115 @@
+---
+title: "Custom LibreWolf: Tier B v1.0 + Daily-Use Issue Triage"
+date: "2026-05-03"
+tags: ["custom-librewolf", "searxng", "curl_cffi", "librewolf", "ux"]
+project: custom-librewolf
+images:
+  - "/artifacts/custom-librewolf/about-processes-youtube.png"
+anomaly: false
+---
+
+Two parallel arcs: SearXNG's outgoing-fetch posture got its v1.0 hardening (disclosed-leg + per-engine token bucket + TTL cache), and the LibreWolf daily-driver picked up four UX fixes pulled from a privacy-preserving inspection pass. None of the UX fixes cost a privacy primitive.
+
+<br />
+
+### Tier B v1.0 — disclosed-leg + per-engine token bucket + TTL cache
+
+The implementation plan stamped APPROVED yesterday landed today as code under `searxng/search_curl/`:
+
+**Disclosed-leg politeness.** Every outgoing request now carries a stable, project-identifying header on the first leg of any new search session. The leg discloses *what client is asking* (one-line UA descriptor; not a per-user identifier) so that engines whose WAFs treat unidentified traffic as scraper traffic get to make an informed decision instead of pattern-matching us into a 403. Implementation: `search_curl/http_curl.py` constructs the curl_cffi session with a per-engine `User-Agent` override pulled from `search_curl/engines/<name>.py`'s `DISCLOSED_UA` constant. Empty string falls back to curl_cffi's default impersonation profile.
+
+**Per-engine token bucket.** Each engine has its own rate-limit token bucket sized from the bench measurements in `docs/_research/`:
+
+```python
+# search_curl/rate_limit.py
+BUCKETS = {
+    "ddg":        Bucket(capacity=8,  refill_per_s=0.5),
+    "brave":      Bucket(capacity=4,  refill_per_s=0.2),
+    "mojeek":     Bucket(capacity=6,  refill_per_s=0.4),
+    "karmasearch":Bucket(capacity=6,  refill_per_s=0.4),
+}
+```
+
+Bucket exhaustion returns a typed `RateLimited` result that SearXNG renders as a normal engine-failed row, not as a search-page-wide error. The user sees "brave: rate limited" inline with the results from the other engines.
+
+**TTL cache.** Identical queries within a 10-minute window short-circuit to the cached result. Cache key is `(engine, normalised_query, language)` — the language threading from 2026-05-04 was needed to keep this correct across multilingual queries. Cache lives in `/opt/searxng/var/cache/search_curl/` with a 10 MB ceiling and LRU eviction.
+
+The three mechanisms compose: disclosed-leg lowers the per-request 403 probability, the bucket caps the burst rate that triggers IP-rep flags in the first place, and the TTL cache reduces request volume on repeated query patterns (URL-bar back-and-forth, common pattern).
+
+---
+
+<br />
+
+### LibreWolf daily-use issue triage
+
+A privacy-preserving inspection pass on the daily profile surfaced four UX issues. The constraint: **no change that costs a privacy primitive**. Each fix had to be argued as privacy-neutral.
+
+**Issue 1 — background-tab timer throttling makes Discord miss notifications.**
+
+```javascript
+user_pref("dom.timeout.enable_budget_timer_throttling", false);
+```
+
+Governs only inactive-tab timer firing rate — privacy-neutral, no fingerprinting primitive. The trade-off is battery on a backgrounded laptop; acceptable.
+
+**Issue 2 — `unloadOnLowMemory` evicts tabs aggressively when laptop is on battery.**
+
+```javascript
+user_pref("browser.tabs.unloadOnLowMemory", false);
+```
+
+Was on from day 1 as a video-memory mitigation. With the media-cache trim already in place (yesterday's 64 MB cap), low-memory eviction is doing nothing useful and is costing tab state. Privacy-neutral — governs only memory-pressure response, no privacy primitive.
+
+**Issue 3 — service workers broken on a handful of sites the user has decided to log into.**
+
+```javascript
+user_pref("dom.serviceWorkers.enabled", true);
+```
+
+Was being disabled via arkenfox baseline. Re-enabled. Privacy-neutral: service workers operate **within** the existing cookie / storage isolation (`cookieBehavior = 5` partitions them per first-party site). They don't open a new cross-origin attack surface that the rest of the posture doesn't already cover.
+
+**Issue 4 — privacy-neutral pref tunings for background-tab progression.** Several smaller tunings that improve the daily-driver experience without touching the fingerprinting or DNS posture. Documented in `docs/librewolf-daily-use-issues-2026-05-03.md`.
+
+After the fixes, an `about:processes` reading during a YouTube tab at 1080p confirmed the cache-trim posture from day 1 still holds — per-tab content process sits in the 300–600 MB band, well under the >1 GB tail that motivated the original task:
+
+<div class="diagram-section">
+  <a href="/artifacts/custom-librewolf/about-processes-youtube.png" class="lightbox">
+    <img src="/artifacts/custom-librewolf/about-processes-youtube.png" alt="about:processes during YouTube 1080p playback — per-tab content process in target band" loading="lazy" />
+  </a>
+</div>
+
+---
+
+<br />
+
+### DNS DoT escalation — finally merged
+
+The DoT-to-specific-upstreams branch from 2026-04-24 had been stranded as a kanban checkpoint ref. Recovered and merged today as a separate commit. Forwarder set at merge: Quad9 + Mullvad + DNS0.eu + Control D (DNS0.eu removed 2026-05-08 after the operator shut down; Control D IPs corrected from `/24` network addresses to `.11` host addresses the same day).
+
+---
+
+<br />
+
+### W12 — `mwmbl` + `yacy` engines enabled (Brief 4)
+
+Per addendum resolution #4 from yesterday's meta-synthesis: `mwmbl` (community-indexed, no central operator) and `yacy` (P2P-distributed) added to the SearXNG roster. Neither carries general-query weight (relevance quality is below the four primary sidecars) but they get attention on niche queries where the aggregator-free posture matters most. mwmbl upstream patch for the empty-extract IndexError captured for upstream PR (filed 2026-05-03).
+
+---
+
+<br />
+
+### Brave sidecar temporarily disabled for IP rest
+
+The 2026-05-02 dual-fan-out fix removed Brave's load from the built-in engine, but the residential IP had accumulated reputation cost. Disabled the Brave sidecar today for a 24-hour IP rest before the §7a v2 probe; the rest of the four-engine fan-out (DDG, Mojeek, Karmasearch) absorbed the load without user-visible result-quality regression on the sample queries logged from URL-bar use.
+
+§7a Brave probe v2 prompt staged as a new kanban backlog task for re-run after the rest window.
+
+---
+
+<br />
+
+### What "privacy-neutral" means in practice
+
+Today's UX fixes are the right place to record the contract. **Privacy-neutral** ≠ "we don't care about privacy on this one." It means: the change does not weaken any of the explicit primitives — fingerprinting surface, cookie / state isolation, third-party connection surface, DNS / TLS path. A pref that governs only browser internal behaviour (timer throttling, memory-pressure response, intra-isolation worker enablement) is privacy-neutral by construction.
+
+The opposite — a pref that *would* cost a primitive — gets a separate decision and lands as a documented trade-off in `GROUND_TRUTH.md`, not as a UX fix.

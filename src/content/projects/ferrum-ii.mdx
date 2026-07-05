@@ -6,8 +6,8 @@ domain: ["ai", "security", "hardware"]
 status: "active"
 featured: true
 badges: ["ai/ml", "oopart"]
-summary: "<strong>Zero-copy wire-to-inference</strong> — GPU-accelerated network threat detection and response via RDMA. Packets travel from NIC directly into GPU VRAM, bypassing the CPU entirely. CUDA kernels parse, classify, and craft response packets in real time.<ul><li>2.62M pps / 31.8 Gbps sustained ingestion</li><li>82 µs avg latency (50× lower than CPU baseline)</li><li>GPU-native IPS: autonomous RST/SYN-ACK/ICMP response</li><li>~3,100 lines C/CUDA, no frameworks</li></ul>"
-metrics: { loc: 3100 }
+summary: "<strong>Zero-copy wire-to-inference</strong> — GPU-accelerated network threat detection and response via RDMA. Packets travel from NIC directly into GPU VRAM, bypassing the CPU entirely. CUDA kernels parse, classify, and craft response packets in real time.<ul><li>2.62M pps / 31.8 Gbps sustained ingestion</li><li>82 µs avg latency (50× lower than CPU baseline)</li><li>GPU-native IPS: autonomous RST/SYN-ACK/ICMP response</li><li>~3,000 lines C/CUDA, no frameworks</li></ul>"
+metrics: { loc: 3000 }
 artifacts:
   diagram: "/artifacts/ferrum-ii/fig_summary_4panel.png"
 images:
@@ -531,7 +531,7 @@ The 12% throughput difference between system RAM and GPU VRAM targets reflects t
 
 ## Appendix C: Source File Summary
 
-<img src="/artifacts/ferrum-ii/table_source_files.png" alt="Source file summary — lines of code and purpose per file, ~3,100 total" loading="lazy" />
+<img src="/artifacts/ferrum-ii/table_source_files.png" alt="Source file summary — lines of code and purpose per file, ~3,000 total" loading="lazy" />
 
 ---
 

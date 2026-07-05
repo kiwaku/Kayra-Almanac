@@ -8,11 +8,11 @@ featured: true
 badges: ["ai/ml"]
 summary: "<strong>Enterprise-grade Red Teaming</strong> framework for LLM vulnerability assessment. System implements adaptive multi-round attack generation, ε-greedy bandit allocation, and comprehensive jailbreak taxonomy.<ul><li>Adaptive AI Attack Generation (DSPy + ε-greedy)</li><li>Multi-provider LLM Orchestration (LiteLLM)</li><li>Dual Output + Web UI Investigation (CSV + JSONL / details)</li></ul>"
 artifacts:
-  diagram: ""
-  diagram2: ""
-  readme: "https://github.com/yourusername/redllm"
+  diagram: "/artifacts/redllm/results-matrix.png"
+  readme: "https://github.com/kiwaku/RedLLM"
 images:
-  - "/artifacts/redllm/security_report_output.webp"
+  - "/artifacts/redllm/dashboard.png"
+  - "/artifacts/redllm/results-matrix.png"
 related: []
 ---
 
@@ -45,13 +45,31 @@ Outputs are structured for investigation: CSV summaries for executive review, an
 ## System Output — Vulnerability Assessment Report
 
 <div class="diagram-section">
-  <a href="/artifacts/redllm/security_report_output.webp" class="lightbox">
-    <img src="/artifacts/redllm/security_report_output.webp" alt="RedLLM Security Report Output" />
+  <a href="/artifacts/redllm/results-matrix.png" class="lightbox">
+    <img src="/artifacts/redllm/results-matrix.png" alt="RedLLM Results Matrix — Demo Vulnerability Assessment against gpt-3.5-turbo and claude-3-haiku, judged by gpt-4. 9 variants across encoding, role-playing, emotional, technical, and misdirection strategies." />
   </a>
 </div>
 
-This report view is the end-product of a RedLLM run: every attempted variation is captured with the model response and an explicit "jailbreak detected" style outcome, allowing rapid identification of which strategies and prompts broke a target model's guardrails.
-RedLLM is designed to preserve a complete audit trail (configuration → prompt lineage → judge decisions), so you can reproduce findings and translate them into actionable remediation work.
+This results matrix is the end-product of a RedLLM run against two target models (gpt-3.5-turbo, claude-3-haiku) judged by gpt-4. Every variant is captured with its strategy, score, pass/fail outcome, and a response preview — allowing rapid identification of which attack families land and which the model deflects. The Output Inspector panel (right) expands any row to the full prompt and untruncated judge decision.
+RedLLM preserves a complete audit trail (configuration → prompt lineage → judge decisions) so findings are reproducible and translate directly into remediation work.
+
+<div class="diagram-section" style="margin-top:1rem;">
+  <a href="/artifacts/redllm/dashboard.png" class="lightbox">
+    <img src="/artifacts/redllm/dashboard.png" alt="RedLLM Dashboard — run history, status indicators, and quick-start workflow" />
+  </a>
+</div>
+
+<div class="diagram-section" style="margin-top:1.5rem;">
+  <video
+    src="https://pub-ebd925cfbd3147d4a5c8e9c1db610d77.r2.dev/redllm/redLLM_demo1.mp4"
+    controls
+    muted
+    preload="metadata"
+    style="width:100%;max-width:100%;border:1px solid var(--line);"
+  >
+    Video: RedLLM full run walkthrough — configuration to results import.
+  </video>
+</div>
 
 ---
 
@@ -253,6 +271,18 @@ Hybrid mode produces CSV + one JSON file per variant plus a manifest, enabling e
 ## Web UI (interactive investigation)
 
 RedLLM includes a Next.js Web UI for importing results, extracting metadata, filtering by strategy family, and inspecting full judge decisions; the UI can auto-detect input format and warn if CSV truncation is detected.
+
+<div class="diagram-section" style="margin-bottom:1rem;">
+  <video
+    src="https://pub-ebd925cfbd3147d4a5c8e9c1db610d77.r2.dev/redllm/redLLM_demo2.mp4"
+    controls
+    muted
+    preload="metadata"
+    style="width:100%;max-width:100%;border:1px solid var(--line);"
+  >
+    Video: RedLLM Web UI — importing results, filtering by strategy, and inspecting judge decisions.
+  </video>
+</div>
 
 ```bash
 cd redllm-ui && npm run dev

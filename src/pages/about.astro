@@ -20,6 +20,8 @@ import Base from '../layouts/SectionLayout.astro';
   <p class="tech-line"><em>Languages:</em> Python, C/CUDA, Bash, Verilog</p>
   <p class="tech-line"><em>Platforms:</em> Proxmox VE, CUDA, InfiniBand, llama.cpp, Linux KVM</p>
   <p class="tech-line"><em>Hardware:</em> Xeon E5-v3, Tesla P40, ConnectX-3, RTL-SDR</p>
+  <p class="tech-line"><em>Open Source:</em> EleutherAI lm-evaluation-harness (merged), MLCommons inference (PR pending)</p>
+  <p class="tech-line"><em>Certifications:</em> CRTO (In Progress) · HeatWave White Hat Program (2019–2020)</p>
 
   <h2>Current Work</h2>
 
@@ -30,39 +32,62 @@ import Base from '../layouts/SectionLayout.astro';
   <div class="experience-list">
     <div class="experience-item">
       <div class="phase-header">
-        <span class="phase-locations">Digital Health Initiative</span>
-        <span class="phase-date">2022–Present</span>
+        <span class="phase-locations">LAIVU — Co-Founder · CTO</span>
+        <span class="phase-date">Oct 2022–Present</span>
       </div>
-      <p class="phase-role"><em>Startup Co-Founder · CTO</em></p>
+      <p class="phase-role"><em>Early-stage investor-backed startup · Tokyo, JP</em></p>
       <ul class="bullets-circle">
-        <li><strong>Funding:</strong> Secured $20,000 in early backing through investor pitches and technical demos.</li>
-        <li><strong>Operations:</strong> Expanded the project toward a B2B model connecting Japanese and Chinese stakeholders.</li>
-        <li><strong>Outreach:</strong> Collaborated with SDG communities at major Japanese universities, leading to NHK coverage and published press.</li>
+        <li>Secured $35K+ in investor funding; earned NHK broadcast coverage through SDG collaboration with Japanese universities.</li>
+        <li>Led product and engineering across 2 co-founders and 3 members; cross-border B2B operations between Japan and China.</li>
+        <li>Applied ML to injury prediction, performance analytics, and user-specific feedback with clinic-adjacent partners in Southeast Asia.</li>
+        <li>Currently shipping a health-focused mobile app.</li>
       </ul>
     </div>
 
     <div class="experience-item">
       <div class="phase-header">
-        <span class="phase-locations">BGL</span>
+        <span class="phase-locations">Matsumoto Yamaga FC — Analytics & Data Science</span>
+        <span class="phase-date">Oct 2025–Jan 2026</span>
+      </div>
+      <p class="phase-role"><em>Invited Collaborator · Clubhouse × J-League · Tokyo / Remote</em></p>
+      <ul class="bullets-circle">
+        <li>Rebuilt fragmented semi-manual athlete data into an automated 5-source Python pipeline with unified identity, deduplication, and mixed-effects modelling — 34 Yamaga athletes in the direct workflow, 157 across the broader pipeline.</li>
+        <li>First reproducible analytics system for a J-League-affiliated club; in production after handoff, powering coach-facing physical, nutrition, and attendance reporting.</li>
+      </ul>
+    </div>
+
+    <div class="experience-item">
+      <div class="phase-header">
+        <span class="phase-locations">Mercari — Enterprise Security</span>
+        <span class="phase-date">Summer 2024</span>
+      </div>
+      <p class="phase-role"><em>Intern · TSE: 4385 · Tokyo, JP</em></p>
+      <ul class="bullets-circle">
+        <li>Shipped access-control tooling in a Chrome extension — dynamic network rules, OS-aware enforcement, custom headers — removing rollout dependency on VDI/fleet middleware.</li>
+        <li>Built real-time password-field detection on unmanaged SaaS with iframe hooks, whitelist/DB checks, and Slack workspace limiter; partnered with security/legal on BYOD policy.</li>
+        <li>Device-migration strategy cut per-user hardware spend 67% (JPY 450K → 150K/yr) across the fleet at a publicly traded company.</li>
+      </ul>
+    </div>
+
+    <div class="experience-item">
+      <div class="phase-header">
+        <span class="phase-locations">Mobiz — AI Research</span>
+        <span class="phase-date">Jun–Sep 2023</span>
+      </div>
+      <p class="phase-role"><em>Research Assistant · Remote</em></p>
+      <ul class="bullets-circle">
+        <li>Built citation-backed PDF-QA (LangChain, vector stores, OpenAI) and OCR/detection pipelines; foundation for later LLM systems work covering stateful agent orchestration and multi-provider safety evaluation.</li>
+      </ul>
+    </div>
+
+    <div class="experience-item">
+      <div class="phase-header">
+        <span class="phase-locations">BGL — Import/Export & IT</span>
         <span class="phase-date">2021–2023</span>
       </div>
       <p class="phase-role"><em>Import Export Manager · IT Specialist</em></p>
       <ul class="bullets-circle">
-        <li><strong>Logistics Systems:</strong> Used NACCS workflows to keep customs handling compliant and reduce operational friction.</li>
-        <li><strong>Internal Tooling:</strong> Built project management and shipment-tracking tools for import/export activity across partner logistics firms.</li>
-      </ul>
-    </div>
-
-    <div class="experience-item">
-      <div class="phase-header">
-        <span class="phase-locations">University Research</span>
-        <span class="phase-date">2023</span>
-      </div>
-      <p class="phase-role"><em>Artificial Intelligence Research Assistant</em></p>
-      <ul class="bullets-circle">
-        <li><strong>LLM Systems:</strong> Built a citation-aware PDF analysis application with LangChain, vector stores, and OpenAI APIs.</li>
-        <li><strong>Computer Vision:</strong> Developed OCR and real-time detection pipelines for image classification and segmentation tasks.</li>
-        <li><strong>Python Tooling:</strong> Created reusable machine learning utilities for parallel analysis workflows.</li>
+        <li>NACCS customs workflows; built internal tracking and project-management tooling for import/export activity across partner logistics firms.</li>
       </ul>
     </div>
   </div>
@@ -72,24 +97,151 @@ import Base from '../layouts/SectionLayout.astro';
   <div class="phase-timeline">
 
     <div class="phase">
-      <div class="phase-divider"><span>Phase 1 — Pre-University</span></div>
+      <div class="phase-divider"><span>Phase 6 — Build Phase</span></div>
+      <div class="phase-entries">
+
+        <div class="phase-entry">
+          <div class="flag-row"><img src="/assets/flags/ca.gif" alt="CA" class="flag" /></div>
+          <div class="phase-header">
+            <span class="phase-locations">Vancouver</span>
+            <span class="phase-date">May 2026–Present</span>
+          </div>
+          <p class="phase-role"><em>Ongoing</em></p>
+        </div>
+
+        <div class="phase-entry">
+          <div class="flag-row"><img src="/assets/flags/jp.gif" alt="JP" class="flag" /></div>
+          <div class="phase-header">
+            <span class="phase-locations">Tokyo</span>
+            <span class="phase-date">Feb–May 2026</span>
+          </div>
+          <p class="phase-role"><em>Lab & Product Development</em></p>
+          <ul class="bullets-circle">
+            <li><strong>Full-Stack Dev:</strong> Continued co-founder development on the digital health/performance-tech initiative alongside selected design work.</li>
+            <li><strong>Lab Systems:</strong> Infrastructure, security, local AI agents, and knowledge-system tooling using the operational Hephaestus platform.</li>
+            <li><strong>SDR / LEO:</strong> Continued satellite/RF station work toward a complete SDR and LEO-tracking setup.</li>
+            <li><strong>Documentation:</strong> Most of this phase documented through project logs on this site.</li>
+          </ul>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase-divider"><span>Phase 5 — Field Implementation</span></div>
+      <div class="phase-entries">
+
+        <div class="phase-entry">
+          <div class="flag-row"><img src="/assets/flags/kh.gif" alt="KH" class="flag" /></div>
+          <div class="phase-header">
+            <span class="phase-locations">Phnom Penh</span>
+            <span class="phase-date">Oct 2025–Jan 2026</span>
+          </div>
+          <p class="phase-role"><em>Co-Founder — LAIVU Digital Health</em></p>
+          <ul class="bullets-circle">
+            <li><strong>Digital Health:</strong> Applied neural-network and data-modelling techniques to injury prediction, performance analysis, and user-specific feedback with clinic-adjacent partners.</li>
+            <li><strong>Adversarial Defense:</strong> Built prompt-shielding for medical data in a complex regulatory environment.</li>
+            <li><strong>Infrastructure:</strong> Lower-scaffolding environment — direct users, uneven data quality, and infrastructure limits as the field test condition.</li>
+          </ul>
+        </div>
+
+        <div class="phase-sub">
+          <p class="sub-header"><img src="/assets/flags/th.gif" alt="TH" class="flag" /><img src="/assets/flags/sg.gif" alt="SG" class="flag" /><img src="/assets/flags/kh.gif" alt="KH" class="flag" /> Southeast Asia Circuit</p>
+
+          <div class="phase-entry sub-entry">
+            <div class="phase-header">
+              <span class="phase-locations">Phnom Penh</span>
+              <span class="phase-date">Jan 2026</span>
+            </div>
+            <p class="phase-note">Returned briefly to continue digital health work and maintain momentum before the Tokyo build phase.</p>
+          </div>
+
+          <div class="phase-entry sub-entry">
+            <div class="phase-header">
+              <span class="phase-locations">Singapore</span>
+              <span class="phase-date">Dec 2025</span>
+            </div>
+            <ul class="bullets-circle">
+              <li><strong>Professional Checkpoint:</strong> Met an entrepreneur, investor, and advisor connected to Singapore and Dubai-facing circles; discussed startup direction and market movement.</li>
+              <li><strong>Hackerspace:</strong> Presented projects at a Hackerspace/LeetCode meetup to software engineers outside the usual security-focused circle.</li>
+              <li><strong>Security Culture:</strong> Met a China-based hardware/backend engineer with strict personal opsec practices.</li>
+            </ul>
+          </div>
+
+          <div class="phase-entry sub-entry">
+            <div class="phase-header">
+              <span class="phase-locations">Bangkok</span>
+              <span class="phase-date">Dec 2025</span>
+            </div>
+            <p class="phase-note">Brief regional stop; comparative look at Bangkok's startup energy and visible development against the usual Southeast Asia framing.</p>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase-divider"><span>Phase 4 — Hardware Lab</span></div>
       <div class="phase-entries">
         <div class="phase-entry">
           <div class="flag-row"><img src="/assets/flags/jp.gif" alt="JP" class="flag" /></div>
           <div class="phase-header">
             <span class="phase-locations">Tokyo</span>
-            <span class="phase-date">2017–2022</span>
+            <span class="phase-date">Sep–Oct 2025</span>
           </div>
-          <p class="phase-role"><em>Independent Research</em></p>
+          <p class="phase-role"><em>Hephaestus Lab</em></p>
           <ul class="bullets-circle">
-            <li><strong>White-Hat Security:</strong> Completed penetration-testing and CTF course covering offensive-security tools and workflows.</li>
-            <li><strong>VEX Robotics:</strong> Team Captain — C++ control systems, Fusion360 3D modelling, and mechanical design.</li>
-            <li><strong>Institutional Grant:</strong> Only student-led personal technical project in the school to receive IT department funding for independent RF research.</li>
-            <li><strong>SDR / ADS-B:</strong> RTL-SDR 1090 MHz demodulation for real-time airspace visualization via SDRAngel.</li>
-            <li><strong>RF Research:</strong> Key-signal recognition and replay attacks; VEX-controller protocol vulnerability assessment.</li>
-            <li><strong>Freelance:</strong> Illustrator, designer, and developer (2020–2022); Google Maps interface work at Google HQ Tokyo.</li>
+            <li><strong>BIOS Recovery:</strong> Motherboard arrived non-functional; revived via direct BIOS-chip clipping and hardware-level flash.</li>
+            <li><strong>NIC Revival:</strong> Recovered soft-bricked quad-port NIC through hardware-level firmware flashing to support planned network experiments.</li>
+            <li><strong>Platform:</strong> Built isolated Proxmox environments for InfiniBand, GPU-defense research, and red/blue-team workloads.</li>
+            <li><strong>SDR / RF:</strong> Began satellite/RF branch — antenna testing, SDR signal capture, and early LEO satellite tracking.</li>
           </ul>
         </div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase-divider"><span>Phase 3 — Post-Grad Circuit</span></div>
+      <div class="phase-entries">
+
+        <div class="phase-entry">
+          <div class="flag-row"><img src="/assets/flags/de.gif" alt="DE" class="flag" /></div>
+          <div class="phase-header">
+            <span class="phase-locations">Berlin</span>
+            <span class="phase-date">Aug–Sep 2025</span>
+          </div>
+          <p class="phase-role"><em>Security Research</em></p>
+          <ul class="bullets-circle">
+            <li><strong>Security Culture:</strong> AI meetups, startup discussions, and hacker-adjacent technical spaces — adversarial systems, evasion logic, and anti-surveillance culture.</li>
+            <li><strong>Research Pivot:</strong> Project direction shifted toward generative phishing shields and evasion-aware defensive systems.</li>
+            <li><strong>c-base:</strong> Collaborated with local collectives including c-base.</li>
+          </ul>
+        </div>
+
+        <div class="phase-entry">
+          <div class="flag-row"><img src="/assets/flags/gb.gif" alt="GB" class="flag" /></div>
+          <div class="phase-header">
+            <span class="phase-locations">London</span>
+            <span class="phase-date">Jul–Aug 2025</span>
+          </div>
+          <p class="phase-role"><em>Security Research & Consulting</em></p>
+          <ul class="bullets-circle">
+            <li><strong>Professional Circuit:</strong> Founder pitches, fintech discussions, hiring conversations, regulation panels, and security meetups.</li>
+            <li><strong>Network Expansion:</strong> Met STEM students and professionals through Imperial College London circles — first post-university technical audience outside Manchester.</li>
+            <li><strong>Freelance:</strong> Paid security audit on a live client-facing system ($400/hr).</li>
+          </ul>
+        </div>
+
+        <div class="phase-entry">
+          <div class="flag-row"><img src="/assets/flags/gb.gif" alt="GB" class="flag" /></div>
+          <div class="phase-header">
+            <span class="phase-locations">Manchester</span>
+            <span class="phase-date">Jul 2025</span>
+          </div>
+          <p class="phase-role"><em>Transition</em></p>
+          <p class="phase-note">Closed the university phase — final conversations with professors and peers before the post-graduation circuit.</p>
+        </div>
+
       </div>
     </div>
 
@@ -113,6 +265,16 @@ import Base from '../layouts/SectionLayout.astro';
 
         <div class="phase-sub">
           <p class="sub-header"><img src="/assets/flags/jp.gif" alt="JP" class="flag" /> Summer Deployments — Tokyo</p>
+
+          <div class="phase-entry sub-entry">
+            <div class="phase-header">
+              <span class="phase-locations">Enterprise Security — Mercari</span>
+              <span class="phase-date">Summer 2024</span>
+            </div>
+            <ul class="bullets-circle">
+              <li>Access-control Chrome extension, password-field detection on unmanaged SaaS, 67% hardware-spend reduction across the fleet at a publicly traded company.</li>
+            </ul>
+          </div>
 
           <div class="phase-entry sub-entry">
             <div class="phase-header">
@@ -141,151 +303,24 @@ import Base from '../layouts/SectionLayout.astro';
     </div>
 
     <div class="phase">
-      <div class="phase-divider"><span>Phase 3 — Post-Grad Circuit</span></div>
-      <div class="phase-entries">
-
-        <div class="phase-entry">
-          <div class="flag-row"><img src="/assets/flags/gb.gif" alt="GB" class="flag" /></div>
-          <div class="phase-header">
-            <span class="phase-locations">Manchester</span>
-            <span class="phase-date">Jul 2025</span>
-          </div>
-          <p class="phase-role"><em>Transition</em></p>
-          <p class="phase-note">Closed the university phase — final conversations with professors and peers before the post-graduation circuit.</p>
-        </div>
-
-        <div class="phase-entry">
-          <div class="flag-row"><img src="/assets/flags/gb.gif" alt="GB" class="flag" /></div>
-          <div class="phase-header">
-            <span class="phase-locations">London</span>
-            <span class="phase-date">Jul–Aug 2025</span>
-          </div>
-          <p class="phase-role"><em>Security Research & Consulting</em></p>
-          <ul class="bullets-circle">
-            <li><strong>Professional Circuit:</strong> Founder pitches, fintech discussions, hiring conversations, regulation panels, and security meetups.</li>
-            <li><strong>Network Expansion:</strong> Met STEM students and professionals through Imperial College London circles — first post-university technical audience outside Manchester.</li>
-            <li><strong>Freelance:</strong> Paid security audit on a live client-facing system ($400/hr).</li>
-          </ul>
-        </div>
-
-        <div class="phase-entry">
-          <div class="flag-row"><img src="/assets/flags/de.gif" alt="DE" class="flag" /></div>
-          <div class="phase-header">
-            <span class="phase-locations">Berlin</span>
-            <span class="phase-date">Aug–Sep 2025</span>
-          </div>
-          <p class="phase-role"><em>Security Research</em></p>
-          <ul class="bullets-circle">
-            <li><strong>Security Culture:</strong> AI meetups, startup discussions, and hacker-adjacent technical spaces — adversarial systems, evasion logic, and anti-surveillance culture.</li>
-            <li><strong>Research Pivot:</strong> Project direction shifted toward generative phishing shields and evasion-aware defensive systems.</li>
-            <li><strong>c-base:</strong> Collaborated with local collectives including c-base.</li>
-          </ul>
-        </div>
-
-      </div>
-    </div>
-
-    <div class="phase">
-      <div class="phase-divider"><span>Phase 4 — Hardware Lab</span></div>
+      <div class="phase-divider"><span>Phase 1 — Pre-University</span></div>
       <div class="phase-entries">
         <div class="phase-entry">
           <div class="flag-row"><img src="/assets/flags/jp.gif" alt="JP" class="flag" /></div>
           <div class="phase-header">
             <span class="phase-locations">Tokyo</span>
-            <span class="phase-date">Sep–Oct 2025</span>
+            <span class="phase-date">2017–2022</span>
           </div>
-          <p class="phase-role"><em>Hephaestus Lab</em></p>
+          <p class="phase-role"><em>Independent Research</em></p>
           <ul class="bullets-circle">
-            <li><strong>BIOS Recovery:</strong> Motherboard arrived non-functional; revived via direct BIOS-chip clipping and hardware-level flash.</li>
-            <li><strong>NIC Revival:</strong> Recovered soft-bricked quad-port NIC through hardware-level firmware flashing to support planned network experiments.</li>
-            <li><strong>Platform:</strong> Built isolated Proxmox environments for InfiniBand, GPU-defense research, and red/blue-team workloads.</li>
-            <li><strong>SDR / RF:</strong> Began satellite/RF branch — antenna testing, SDR signal capture, and early LEO satellite tracking.</li>
+            <li><strong>White-Hat Security:</strong> Completed penetration-testing and CTF course covering offensive-security tools and workflows.</li>
+            <li><strong>VEX Robotics:</strong> Team Captain — C++ control systems, Fusion360 3D modelling, and mechanical design.</li>
+            <li><strong>Institutional Grant:</strong> Only student-led personal technical project in the school to receive IT department funding for independent RF research.</li>
+            <li><strong>SDR / ADS-B:</strong> RTL-SDR 1090 MHz demodulation for real-time airspace visualization via SDRAngel.</li>
+            <li><strong>RF Research:</strong> Key-signal recognition and replay attacks; VEX-controller protocol vulnerability assessment.</li>
+            <li><strong>Freelance:</strong> Illustrator, designer, and developer (2020–2022); Google Maps interface work at Google HQ Tokyo.</li>
           </ul>
         </div>
-      </div>
-    </div>
-
-    <div class="phase">
-      <div class="phase-divider"><span>Phase 5 — Field Implementation</span></div>
-      <div class="phase-entries">
-
-        <div class="phase-entry">
-          <div class="flag-row"><img src="/assets/flags/kh.gif" alt="KH" class="flag" /></div>
-          <div class="phase-header">
-            <span class="phase-locations">Phnom Penh</span>
-            <span class="phase-date">Oct 2025–Jan 2026</span>
-          </div>
-          <p class="phase-role"><em>Co-Founder — Digital Health Initiative</em></p>
-          <ul class="bullets-circle">
-            <li><strong>Digital Health:</strong> Applied neural-network and data-modelling techniques to injury prediction, performance analysis, and user-specific feedback with clinic-adjacent partners.</li>
-            <li><strong>Adversarial Defense:</strong> Built prompt-shielding for medical data in a complex regulatory environment.</li>
-            <li><strong>Infrastructure:</strong> Lower-scaffolding environment — direct users, uneven data quality, and infrastructure limits as the field test condition.</li>
-          </ul>
-        </div>
-
-        <div class="phase-sub">
-          <p class="sub-header"><img src="/assets/flags/th.gif" alt="TH" class="flag" /><img src="/assets/flags/sg.gif" alt="SG" class="flag" /><img src="/assets/flags/kh.gif" alt="KH" class="flag" /> Southeast Asia Circuit</p>
-
-          <div class="phase-entry sub-entry">
-            <div class="phase-header">
-              <span class="phase-locations">Bangkok</span>
-              <span class="phase-date">Dec 2025</span>
-            </div>
-            <p class="phase-note">Brief regional stop; comparative look at Bangkok's startup energy and visible development against the usual Southeast Asia framing.</p>
-          </div>
-
-          <div class="phase-entry sub-entry">
-            <div class="phase-header">
-              <span class="phase-locations">Singapore</span>
-              <span class="phase-date">Dec 2025</span>
-            </div>
-            <ul class="bullets-circle">
-              <li><strong>Professional Checkpoint:</strong> Met an entrepreneur, investor, and advisor connected to Singapore and Dubai-facing circles; discussed startup direction and market movement.</li>
-              <li><strong>Hackerspace:</strong> Presented projects at a Hackerspace/LeetCode meetup to software engineers outside the usual security-focused circle.</li>
-              <li><strong>Security Culture:</strong> Met a China-based hardware/backend engineer with strict personal opsec practices.</li>
-            </ul>
-          </div>
-
-          <div class="phase-entry sub-entry">
-            <div class="phase-header">
-              <span class="phase-locations">Phnom Penh</span>
-              <span class="phase-date">Jan 2026</span>
-            </div>
-            <p class="phase-note">Returned briefly to continue digital health work and maintain momentum before the Tokyo build phase.</p>
-          </div>
-
-        </div>
-      </div>
-    </div>
-
-    <div class="phase">
-      <div class="phase-divider"><span>Phase 6 — Build Phase</span></div>
-      <div class="phase-entries">
-
-        <div class="phase-entry">
-          <div class="flag-row"><img src="/assets/flags/jp.gif" alt="JP" class="flag" /></div>
-          <div class="phase-header">
-            <span class="phase-locations">Tokyo</span>
-            <span class="phase-date">Feb–May 2026</span>
-          </div>
-          <p class="phase-role"><em>Lab & Product Development</em></p>
-          <ul class="bullets-circle">
-            <li><strong>Full-Stack Dev:</strong> Continued co-founder development on the digital health/performance-tech initiative alongside selected design work.</li>
-            <li><strong>Lab Systems:</strong> Infrastructure, security, local AI agents, and knowledge-system tooling using the operational Hephaestus platform.</li>
-            <li><strong>SDR / LEO:</strong> Continued satellite/RF station work toward a complete SDR and LEO-tracking setup.</li>
-            <li><strong>Documentation:</strong> Most of this phase documented through project logs on this site.</li>
-          </ul>
-        </div>
-
-        <div class="phase-entry">
-          <div class="flag-row"><img src="/assets/flags/ca.gif" alt="CA" class="flag" /></div>
-          <div class="phase-header">
-            <span class="phase-locations">Vancouver</span>
-            <span class="phase-date">May 2026–Present</span>
-          </div>
-          <p class="phase-role"><em>Ongoing</em></p>
-        </div>
-
       </div>
     </div>
 
@@ -444,8 +479,8 @@ import Base from '../layouts/SectionLayout.astro';
 
   .flag-row .flag,
   .sub-header .flag {
-    width: 16px;
-    height: 11px;
+    width: 19px;
+    height: 13px;
     image-rendering: pixelated;
   }
 

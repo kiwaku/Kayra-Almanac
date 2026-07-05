@@ -6,7 +6,7 @@ domain: ["security", "ai"]
 status: "active"
 featured: true
 badges: ["ai/ml"]
-summary: "<strong>Enterprise-grade Red Teaming</strong> framework for LLM vulnerability assessment. System implements adaptive multi-round attack generation, ε-greedy bandit allocation, and comprehensive jailbreak taxonomy.<ul><li>Adaptive AI Attack Generation (DSPy + ε-greedy)</li><li>Multi-provider LLM Orchestration (LiteLLM)</li><li>Dual Output + Web UI Investigation (CSV + JSONL / details)</li></ul>"
+summary: "<strong>Enterprise-grade Red Teaming</strong> framework for LLM vulnerability assessment. System implements adaptive multi-round attack generation, ε-greedy bandit allocation, ensemble judging, and comprehensive jailbreak taxonomy.<ul><li>Adaptive AI Attack Generation (DSPy + ε-greedy)</li><li>Ensemble Judge — majority voting + confidence-based retries across multiple judge models</li><li>Multi-provider LLM Orchestration (LiteLLM)</li><li>Dual Output + Web UI Investigation (CSV + JSONL / details)</li></ul>"
 artifacts:
   diagram: "/artifacts/redllm/results-matrix.png"
   readme: "https://github.com/kiwaku/RedLLM"
@@ -32,7 +32,7 @@ Outputs are structured for investigation: CSV summaries for executive review, an
   - **Seed round:** generate diverse initial variants across multiple strategies
   - **Adaptive rounds:** allocate more budget to strategies that are empirically winning (ε-greedy bandit)
 - **V2 pipeline (active):**
-  - Generator → Validator → Executor → Judge → Reporter
+  - Generator → Validator → Executor → Ensemble Judge → Reporter
 - **Outputs (investigation-first):**
   - CSV report (summary / spreadsheet-friendly)
   - JSONL run trace (untruncated, recommended for UI)
@@ -83,7 +83,7 @@ This map outlines the core functionality of the current RedLLM release, spanning
 <details className="capability">
   <summary><span className="chevron">▸</span><strong>B) V2 Pipeline Orchestration</strong> (modular & scalable)</summary>
 
-- **V2 pipeline is the sole active implementation:** clean separation of concerns (Generator → Validator → Executor → Judge → Reporter).
+- **V2 pipeline is the sole active implementation:** clean separation of concerns (Generator → Validator → Executor → Ensemble Judge → Reporter).
 - **Dual generation engines:** a "simple" engine for fast text wrappers, and a DSPy engine for LLM-assisted strategy generation.
 - **Strict/permissive validation:** configurable guardrails on what gets executed and logged to keep runs reliable in messy provider conditions.
 
@@ -92,7 +92,7 @@ This map outlines the core functionality of the current RedLLM release, spanning
 <details className="capability">
   <summary><span className="chevron">▸</span><strong>C) Evaluation & Reporting</strong> (research-grade outputs)</summary>
 
-- **Judge-driven evaluation:** per-variant scoring + classification feeds both reporting and adaptive allocation (no "hand-wavy" success criteria).
+- **Ensemble judge:** multiple judge models with majority voting and confidence-based retries; per-variant scoring + classification feeds both reporting and adaptive allocation. Single-model path retained when only one judge is supplied.
 - **CSV contract:** dense, spreadsheet-friendly executive summary (including success semantics) suitable for briefings.
 - **JSONL trace:** untruncated prompts/responses + structured judge objects for forensic analysis and UI ingestion.
 - **Hybrid output:** `--details-dir` emits per-variant JSON artifacts plus a manifest for investigation workflows.

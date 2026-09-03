@@ -8,7 +8,7 @@ import { profile } from '../data/profile';
   <p>{profile.summary}</p>
   <nav class="site-guide" aria-label="Portfolio and Almanac">
     <div class="site-guide-row">
-      <strong class="site-guide-label"><a href={profile.links.portfolio} target="_blank" rel="noopener noreferrer">Portfolio</a> ↗</strong>
+      <strong class="site-guide-label"><a href={profile.links.portfolio} target="_blank" rel="noopener noreferrer">Portfolio</a></strong>
       <span class="site-guide-separator" aria-hidden="true">—</span>
       <span>Current work and credentials.</span>
     </div>
@@ -410,9 +410,9 @@ import { profile } from '../data/profile';
   }
 
   .site-guide-label {
+    font-family: var(--sans);
     font-size: 13px;
-    letter-spacing: 0.01em;
-    text-transform: uppercase;
+    letter-spacing: normal;
   }
 
   .site-guide-separator {

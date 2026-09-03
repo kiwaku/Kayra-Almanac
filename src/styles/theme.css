@@ -144,8 +144,8 @@ hr, .divider {
 
 .portfolio-bar {
   display:flex;
-  align-items:baseline;
-  gap:10px;
+  align-items:center;
+  gap:7px;
   padding:7px 9px;
   margin:0 0 6px;
   border:1px solid #222;
@@ -159,8 +159,15 @@ hr, .divider {
   font-weight:bold;
 }
 
-.portfolio-bar span {
-  color:var(--muted);
+.portfolio-prompt {
+  color:#111;
+  font-weight:bold;
+  animation:portfolio-prompt-blink 1s steps(1, end) infinite;
+}
+
+@keyframes portfolio-prompt-blink {
+  0%, 49% { opacity:1; }
+  50%, 100% { opacity:0; }
 }
 
 
@@ -823,9 +830,9 @@ details.raw code {
     line-height:1.5;
   }
   .portfolio-bar {
-    align-items:flex-start;
-    flex-direction:column;
-    gap:2px;
+    align-items:center;
+    flex-direction:row;
+    gap:7px;
   }
   .portfolio-bar a {
     min-height:44px;
@@ -928,6 +935,9 @@ details.raw code {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
+  }
+  .portfolio-prompt {
+    opacity:1;
   }
 }
 

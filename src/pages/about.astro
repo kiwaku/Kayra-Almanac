@@ -6,11 +6,10 @@ import { profile } from '../data/profile';
   <h1>About</h1>
 
   <p>{profile.summary}</p>
-  <p class="archive-note">
-    This Almanac is my extended technical and project archive. For my current professional profile,
-    selected work, experience, and credentials, see the
-    <a href={profile.links.portfolio}><strong>Professional Portfolio ↗</strong></a>.
-  </p>
+  <nav class="site-guide" aria-label="Portfolio and Almanac">
+    <a href={profile.links.portfolio}><strong>Professional Portfolio ↗</strong> — current profile, selected work, experience, and credentials.</a>
+    <a href="/"><strong>Workshop Almanac</strong> — this website; the extended technical archive, project history, hardware, and logs.</a>
+  </nav>
 
   <h2>Technical Background</h2>
 
@@ -349,11 +348,11 @@ import { profile } from '../data/profile';
   <h2>Contact & Links</h2>
 
   <p><strong>Professional Portfolio:</strong> <a href={profile.links.portfolio}>kayra-bios-portfolio.vercel.app</a></p>
-  <p><strong>Resume:</strong> <a href={profile.links.resume}>[Current PDF]</a> <small>(canonical copy from the professional portfolio)</small></p>
+  <p><strong>Resume:</strong> <a href={profile.links.resume}>[Current PDF]</a></p>
   <p><strong>Email:</strong> <a href={`mailto:${profile.email}`}>{profile.email}</a></p>
   <p><strong>LinkedIn:</strong> <a href={profile.links.linkedin}>linkedin.com/in/kayra-arai-ozturk</a></p>
   <p><strong>GitHub:</strong> <a href={profile.links.github}>github.com/kiwaku</a></p>
-  <p><strong>Earlier Portfolio Archive:</strong> <a href={profile.links.earlierPortfolio}>historical work</a> <em>(not maintained)</em></p>
+  <p><strong>Earlier Portfolio Archive:</strong> <a href={profile.links.earlierPortfolio}>historical work</a> <em>(last updated 2023)</em></p>
 
   <h2>Site Philosophy</h2>
 
@@ -382,11 +381,17 @@ import { profile } from '../data/profile';
     color: #444;
   }
 
-  .archive-note {
+  .site-guide {
+    display: grid;
+    gap: 0.35em;
     margin: 1em 0 1.25em;
     padding: 0.7em 0.8em;
     border-left: 3px solid #222;
     background: #f8f8f8;
+  }
+
+  .site-guide a {
+    display: block;
   }
 
   .tech-line {

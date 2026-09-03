@@ -8,7 +8,7 @@ import { profile } from '../data/profile';
   <p>{profile.summary}</p>
   <nav class="site-guide" aria-label="Portfolio and Almanac">
     <div class="site-guide-row">
-      <strong class="site-guide-label"><a href={profile.links.portfolio}>Professional Portfolio</a> ↗</strong>
+      <strong class="site-guide-label"><a href={profile.links.portfolio} target="_blank" rel="noopener noreferrer">Professional Portfolio</a> ↗</strong>
       <span class="site-guide-separator" aria-hidden="true">—</span>
       <span>Current profile, selected work, experience, and credentials.</span>
     </div>
@@ -36,17 +36,17 @@ import { profile } from '../data/profile';
   <p class="tech-line"><em>Systems:</em> {profile.stacks.systems.join(' · ')}</p>
   <p class="tech-line"><em>Data / Tooling:</em> {profile.stacks.dataTooling.join(' · ')}</p>
   <p class="tech-line"><em>Hardware:</em> Xeon E5-v3, Tesla P40, ConnectX-3, RTL-SDR</p>
-  <p class="tech-line"><em>Open Source:</em> EleutherAI / MLCommons — merged upstream contributions (<a href={profile.links.eleutherAI}>lm-evaluation-harness PR #3693</a> · <a href={profile.links.mlCommons}>MLCommons Inference PR #2572</a>)</p>
+  <p class="tech-line"><em>Open Source:</em> EleutherAI / MLCommons — merged upstream contributions (<a href={profile.links.eleutherAI} target="_blank" rel="noopener noreferrer">lm-evaluation-harness PR #3693</a> · <a href={profile.links.mlCommons} target="_blank" rel="noopener noreferrer">MLCommons Inference PR #2572</a>)</p>
 
   <h3>Certifications</h3>
   <ul>
-    <li><a href={profile.links.crto}><strong>CRTO — Certified Red Team Operator</strong></a>, Zero-Point Security, earned August 27, 2026 (RTO-170: 100/100)</li>
+    <li><a href={profile.links.crto} target="_blank" rel="noopener noreferrer"><strong>CRTO — Certified Red Team Operator</strong></a>, Zero-Point Security, earned August 27, 2026 (RTO-170: 100/100)</li>
     <li>HeatWave White Hat Program, 2019–2020</li>
   </ul>
 
   <h2>Current Work</h2>
 
-  <p>LLM reliability and multi-provider safety evaluation through <a href="/projects/redllm">RedLLM</a>; private local-model infrastructure through <a href="/projects/qut">Qut</a> and <a href="/projects/hephaestus">Hephaestus</a>; sole full-stack development of <a href={profile.links.fittomoAppStore}>Fittomo</a>; and privacy / network systems work.</p>
+  <p>LLM reliability and multi-provider safety evaluation through <a href="/projects/redllm">RedLLM</a>; private local-model infrastructure through <a href="/projects/qut">Qut</a> and <a href="/projects/hephaestus">Hephaestus</a>; sole full-stack development of <a href={profile.links.fittomoAppStore} target="_blank" rel="noopener noreferrer">Fittomo</a>; and privacy / network systems work.</p>
 
   <h2>Professional Experience</h2>
 
@@ -61,7 +61,7 @@ import { profile } from '../data/profile';
         <li>Started as a sustainability-fashion EC business before pivoting into fitness and health technology; secured $35K+ in investor funding and earned NHK broadcast coverage.</li>
         <li>Led product and engineering across 2 co-founders and 3 members at peak, including compliant cross-border B2B operations.</li>
         <li>Earlier health-tech work applied ML to injury prediction, performance analytics, and user-specific feedback with clinic-adjacent partners in Southeast Asia.</li>
-        <li>Now the sole full-stack engineer rebuilding <a href={profile.links.fittomoAppStore}>Fittomo</a> in TypeScript, Firebase, and React across frontend and backend while operating the health-focused app live on the Apple App Store.</li>
+        <li>Now the sole full-stack engineer rebuilding <a href={profile.links.fittomoAppStore} target="_blank" rel="noopener noreferrer">Fittomo</a> in TypeScript, Firebase, and React across frontend and backend while operating the health-focused app live on the Apple App Store.</li>
       </ul>
     </div>
 
@@ -355,12 +355,12 @@ import { profile } from '../data/profile';
 
   <h2>Contact & Links</h2>
 
-  <p><strong>Professional Portfolio:</strong> <a href={profile.links.portfolio}>kayra-bios-portfolio.vercel.app</a></p>
+  <p><strong>Professional Portfolio:</strong> <a href={profile.links.portfolio} target="_blank" rel="noopener noreferrer">kayra-bios-portfolio.vercel.app</a></p>
   <p><strong>Resume:</strong> <a href={profile.links.resume}>[Current PDF]</a></p>
   <p><strong>Email:</strong> <a href={`mailto:${profile.email}`}>{profile.email}</a></p>
-  <p><strong>LinkedIn:</strong> <a href={profile.links.linkedin}>linkedin.com/in/kayra-arai-ozturk</a></p>
-  <p><strong>GitHub:</strong> <a href={profile.links.github}>github.com/kiwaku</a></p>
-  <p><strong>Earlier Portfolio Archive:</strong> <a href={profile.links.earlierPortfolio}>historical work</a> <em>(last updated 2023)</em></p>
+  <p><strong>LinkedIn:</strong> <a href={profile.links.linkedin} target="_blank" rel="noopener noreferrer">linkedin.com/in/kayra-arai-ozturk</a></p>
+  <p><strong>GitHub:</strong> <a href={profile.links.github} target="_blank" rel="noopener noreferrer">github.com/kiwaku</a></p>
+  <p><strong>Earlier Portfolio Archive:</strong> <a href={profile.links.earlierPortfolio} target="_blank" rel="noopener noreferrer">historical work</a> <em>(last updated 2023)</em></p>
 
   <h2>Site Philosophy</h2>
 

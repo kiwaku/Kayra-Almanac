@@ -1,9 +1,7 @@
 ---
 const currentPath = Astro.url.pathname;
-import { profile } from '../data/profile';
 ---
 <nav class="leftnav">
-  <a class="professional-link" href={profile.links.portfolio}>Portfolio ↗</a>
   <a href="/" aria-current={currentPath === '/' ? 'page' : undefined}>Index</a>
   <a href="/about" data-portal aria-current={currentPath === '/about' ? 'page' : undefined}>About</a>
   <a href="/catalog" data-portal aria-current={currentPath === '/catalog' ? 'page' : undefined}>Catalog</a>

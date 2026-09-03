@@ -216,11 +216,6 @@ main, .shell, .content, .left, header, footer {
   margin-bottom:2px;
 }
 
-.leftnav .professional-link {
-  margin-bottom:8px;
-  font-weight:bold;
-}
-
 .leftnav a[aria-current="page"] {
   font-weight:bold;
   text-decoration:underline;

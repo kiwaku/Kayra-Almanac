@@ -7,8 +7,16 @@ import { profile } from '../data/profile';
 
   <p>{profile.summary}</p>
   <nav class="site-guide" aria-label="Portfolio and Almanac">
-    <a href={profile.links.portfolio}><strong>Professional Portfolio ↗</strong> — current profile, selected work, experience, and credentials.</a>
-    <a href="/"><strong>Workshop Almanac</strong> — this website; the extended technical archive, project history, hardware, and logs.</a>
+    <div class="site-guide-row">
+      <strong class="site-guide-label"><a href={profile.links.portfolio}>Professional Portfolio</a> ↗</strong>
+      <span class="site-guide-separator" aria-hidden="true">—</span>
+      <span>Current profile, selected work, experience, and credentials.</span>
+    </div>
+    <div class="site-guide-row">
+      <strong class="site-guide-label"><a href="/">Workshop Almanac</a></strong>
+      <span class="site-guide-separator" aria-hidden="true">—</span>
+      <span>This website: extended technical archive, project history, hardware, and logs.</span>
+    </div>
   </nav>
 
   <h2>Technical Background</h2>
@@ -383,15 +391,34 @@ import { profile } from '../data/profile';
 
   .site-guide {
     display: grid;
-    gap: 0.35em;
+    gap: 0.5em;
     margin: 1em 0 1.25em;
     padding: 0.7em 0.8em;
     border-left: 3px solid #222;
     background: #f8f8f8;
   }
 
-  .site-guide a {
-    display: block;
+  .site-guide-row {
+    display: grid;
+    grid-template-columns: 172px 1em minmax(0, 1fr);
+    column-gap: 0.45em;
+    align-items: baseline;
+  }
+
+  .site-guide-label,
+  .site-guide-separator {
+    white-space: nowrap;
+  }
+
+  @media (max-width: 480px) {
+    .site-guide-row {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.1em;
+    }
+
+    .site-guide-separator {
+      display: none;
+    }
   }
 
   .tech-line {

@@ -8,14 +8,14 @@ import { profile } from '../data/profile';
   <p>{profile.summary}</p>
   <nav class="site-guide" aria-label="Portfolio and Almanac">
     <div class="site-guide-row">
-      <strong class="site-guide-label"><a href={profile.links.portfolio} target="_blank" rel="noopener noreferrer">Professional Portfolio</a> ↗</strong>
+      <strong class="site-guide-label"><a href={profile.links.portfolio} target="_blank" rel="noopener noreferrer">Portfolio</a> ↗</strong>
       <span class="site-guide-separator" aria-hidden="true">—</span>
-      <span>Current work, experience, and credentials.</span>
+      <span>Current work and credentials.</span>
     </div>
     <div class="site-guide-row">
-      <strong class="site-guide-label"><a href="/">Workshop Almanac</a></strong>
+      <strong class="site-guide-label"><a href="/">Almanac</a></strong>
       <span class="site-guide-separator" aria-hidden="true">—</span>
-      <span>This site: technical projects, hardware, and build logs.</span>
+      <span>Projects, hardware, and build logs.</span>
     </div>
   </nav>
 
@@ -403,14 +403,14 @@ import { profile } from '../data/profile';
 
   .site-guide-row {
     display: grid;
-    grid-template-columns: 180px 1em minmax(0, 1fr);
+    grid-template-columns: 92px 1em minmax(0, 1fr);
     column-gap: 4px;
     align-items: baseline;
     padding: 2px 0;
   }
 
   .site-guide-label {
-    font-size: 12px;
+    font-size: 13px;
     letter-spacing: 0.01em;
     text-transform: uppercase;
   }

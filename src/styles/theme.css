@@ -142,6 +142,27 @@ hr, .divider {
   font-weight:normal;
 }
 
+.portfolio-bar {
+  display:flex;
+  align-items:baseline;
+  gap:10px;
+  padding:7px 9px;
+  margin:0 0 6px;
+  border:1px solid #222;
+  background:#fff;
+  font-family:var(--mono);
+  font-size:13px;
+}
+
+.portfolio-bar a {
+  flex:0 0 auto;
+  font-weight:bold;
+}
+
+.portfolio-bar span {
+  color:var(--muted);
+}
+
 
 /* Proof strip - monospace status tape, NO border-bottom */
 .proof {
@@ -184,6 +205,11 @@ main, .shell, .content, .left, header, footer {
   font-weight:bold;
   letter-spacing:0.03em;
   margin-bottom:2px;
+}
+
+.leftnav .professional-link {
+  margin-bottom:8px;
+  font-weight:bold;
 }
 
 .leftnav a[aria-current="page"] {
@@ -795,6 +821,16 @@ details.raw code {
   }
   p, li {
     line-height:1.5;
+  }
+  .portfolio-bar {
+    align-items:flex-start;
+    flex-direction:column;
+    gap:2px;
+  }
+  .portfolio-bar a {
+    min-height:44px;
+    display:flex;
+    align-items:center;
   }
   /* Hide desktop chrome on mobile — decisions 02 §8 (LeftNav) and §10 (InstrumentPanel).
      `#debug-toggle-ui` is the floating "Show Debug Gridlines" panel injected by

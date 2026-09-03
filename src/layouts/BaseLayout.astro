@@ -3,21 +3,53 @@ import '../styles/theme.css';
 import LeftNav from '../components/LeftNav.astro';
 import ProofStrip from '../components/ProofStrip.astro';
 import InstrumentPanel from '../components/InstrumentPanel.astro';
+import { profile } from '../data/profile';
 const { title = 'Kayra — Workshop Almanac', rawMarkdown } = Astro.props;
+const pageTitle = title === 'Kayra — Workshop Almanac'
+  ? title
+  : `${title} — Kayra's Workshop Almanac`;
+const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
+const description = `${profile.professionalTitle}: extended technical archive covering security, LLM systems, local AI infrastructure, GPU/network research, hardware, and RF.`;
+const structuredData = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'WebSite',
+      name: "Kayra's Workshop Almanac",
+      url: Astro.site,
+      description,
+      dateModified: profile.siteUpdated,
+      author: { '@id': `${profile.links.portfolio}#person` },
+    },
+    {
+      '@type': 'Person',
+      '@id': `${profile.links.portfolio}#person`,
+      name: profile.name,
+      jobTitle: profile.professionalTitle,
+      url: profile.links.portfolio,
+      email: `mailto:${profile.email}`,
+      sameAs: [profile.links.github, profile.links.linkedin],
+    },
+  ],
+};
 ---
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>{title}</title>
+    <title>{pageTitle}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="Workshop Almanac: security, OS builds, AI eval, hardware logs.">
+    <meta name="description" content={description}>
+    <meta name="author" content={profile.name}>
+    <link rel="canonical" href={canonicalUrl}>
     <link rel="icon" href="/favicon-light.png" media="(prefers-color-scheme: light)" />
     <link rel="icon" href="/favicon-dark.png" media="(prefers-color-scheme: dark)" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous">
     <meta property="og:type" content="website">
-    <meta property="og:title" content="Kayra — Workshop Almanac">
-    <meta property="og:description" content="Security, OS builds, AI eval, hardware logs.">
+    <meta property="og:title" content={pageTitle}>
+    <meta property="og:description" content={description}>
+    <meta property="og:url" content={canonicalUrl}>
     <meta property="og:image" content="/og-default.jpg">
+    <script is:inline type="application/ld+json" set:html={JSON.stringify(structuredData)} />
   </head>
   <body>
     <header class="header">
@@ -27,6 +59,11 @@ const { title = 'Kayra — Workshop Almanac', rawMarkdown } = Astro.props;
         </a>
       </div>
     </header>
+
+    <aside class="portfolio-bar" aria-label="Professional portfolio">
+      <a href={profile.links.portfolio}>PROFESSIONAL PORTFOLIO ↗</a>
+      <span>Selected work, experience, credentials, and current engineering profile</span>
+    </aside>
 
     <ProofStrip />
 
@@ -68,9 +105,9 @@ const { title = 'Kayra — Workshop Almanac', rawMarkdown } = Astro.props;
         </nav>
 
         <div class="footer-meta">
-          <span class="footer-copy">Copyright © {new Date().getFullYear()} Kayra Arai — Workshop Almanac. All rights reserved.</span><br>
+          <span class="footer-copy">Copyright © {new Date().getFullYear()} {profile.shortName} — Workshop Almanac. All rights reserved.</span><br>
           <small><i>PGP Fingerprint: [REDACTED]</i></small><br>
-          <span class="footer-credits">Site by Kayra Arai · Updated: October, 2025</span><br>
+          <span class="footer-credits">Site by {profile.shortName} · Updated: {profile.siteUpdatedDisplay}</span><br>
           <span class="footer-credits">Served statically with Astro · Built without frameworks</span><br>
           <span class="footer-shortcuts">Shortcuts: Evidence [E] · Raw [R] · <a href="/about">Full guide</a></span>
         </div>

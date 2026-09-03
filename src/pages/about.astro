@@ -410,9 +410,18 @@ import { profile } from '../data/profile';
   }
 
   .site-guide-label {
-    font-family: var(--sans);
-    font-size: 13px;
-    letter-spacing: normal;
+    font-family: var(--mono);
+    font-size: 14px;
+  }
+
+  .site-guide-label a {
+    text-decoration: none;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .site-guide-label a:hover {
+      text-decoration: underline;
+    }
   }
 
   .site-guide-separator {

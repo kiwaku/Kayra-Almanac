@@ -146,8 +146,10 @@ hr, .divider {
   display:flex;
   align-items:center;
   gap:7px;
+  width:fit-content;
+  max-width:100%;
   padding:7px 9px;
-  margin:0 0 6px;
+  margin:0 0 6px auto;
   border:1px solid #222;
   background:#fff;
   font-family:var(--mono);

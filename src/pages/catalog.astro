@@ -5,7 +5,7 @@ import Filters from '../components/Filters.astro';
 import ArtifactRow from '../components/ArtifactRow.astro';
 import ProjectBadges from '../components/ProjectBadges.astro';
 
-const displayOrder = ['hephaestus', 'qut', 'orbit-rxtx', 'ferrum-ii', 'ferrum-i', 'redllm', 'himorogi', 'sentinel', 'crest-snn', 'moltbot'];
+const displayOrder = ['hephaestus', 'qut', 'orbit-rxtx', 'ferrum-ii', 'ferrum-i', 'ferrum-iii', 'redllm', 'himorogi', 'sentinel', 'crest-snn', 'moltbot'];
 const unsorted = await getCollection('projects');
 const ordered = displayOrder
   .map(id => unsorted.find(p => p.data.id === id))

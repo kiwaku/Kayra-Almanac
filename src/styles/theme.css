@@ -271,6 +271,7 @@ main, .shell, .content, .left, header, footer {
 
 .content {
   padding:8px 0;
+  min-width: 0;
 }
 
 /* Footer - ARJ-style 1999 aesthetic */
@@ -390,6 +391,7 @@ main, .shell, .content, .left, header, footer {
   color:var(--fg);
   line-height:1.35;
   margin:4px 0 6px 0;
+  min-width: 0;
 }
 
 /* Standalone images (tables, inline photos) — natural size, centered */

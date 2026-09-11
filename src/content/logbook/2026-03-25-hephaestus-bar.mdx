@@ -1,7 +1,7 @@
 ---
 title: "HephaestusBar: macOS Menu Bar Dashboard for Lab Control"
 date: "2026-03-25"
-tags: ["hardware", "hephaestus", "swiftui", "monitoring", "menubar", "openclaw"]
+tags: ["hardware", "hephaestus", "swiftui", "monitoring", "menubar"]
 project: hephaestus
 images:
   - "/artifacts/hephaestus/hephaestusbar-menu.png"
@@ -26,11 +26,11 @@ After: menu bar icon shows live state; dropdown exposes monitoring + controls.
 
 ### Architecture
 
-**Single SwiftUI app** (`~/.openclaw/menubar/Sources/HephaestusBar/main.swift` — ~1000 lines):
+**Single SwiftUI app** (`hephaestusbar/Sources/HephaestusBar/main.swift` — ~1000 lines):
 
 | Layer | Mechanism |
 |-------|-----------|
-| **Fast poll (10s)** | Native `FileManager` only: `/tmp/cuda-inference.lock` (holder, PID, ts), `~/.hermes/logs/gateway.log` (tail for "pondering"/"reasoning"), PID files in `~/.openclaw/runtime/deep-research-*.pid` |
+| **Fast poll (10s)** | Native `FileManager` only: `/tmp/cuda-inference.lock` (holder, PID, ts), `~/.hermes/logs/gateway.log` (tail for "pondering"/"reasoning"), PID files in `~/hephaestus/runtime/deep-research-*.pid` |
 | **Full refresh (60s)** | Shell calls: `sqlite3` on `queue.db` + `knowledge.db`, `launchctl list`, `curl` health checks (ActivityWatch, SearXNG), `hermes cron list` |
 | **Composite activity** | Priority: Agent thinking → Deep research (LLM call) → Deep research (idle) → CUDA lock holder → Run All → Send Summary → Idle |
 | **Menu bar icon** | Dynamic: `bolt.fill` (normal), `microscope` (research), `brain.head.profile` (agent), `lock.fill` (CUDA locked), with counters (research cycles / agent elapsed / lock age) |
@@ -59,7 +59,7 @@ After: menu bar icon shows live state; dropdown exposes monitoring + controls.
 ### Build & Install
 
 ```bash
-cd ~/.openclaw/menubar
+cd hephaestusbar
 swift build -c release
 # Binary: .build/release/HephaestusBar
 # Or open .build/release/HephaestusBar.app
@@ -75,9 +75,9 @@ Add to **Login Items** (System Settings → General → Login Items) for auto-la
 |-----------|-----------|
 | **CUDA lock** | `/tmp/cuda-inference.lock/{holder,pid,ts}` (created by `cuda-lock.sh`) |
 | **Gateway log** | `~/.hermes/logs/gateway.log` (keywords: pondering, musing, reflecting, reasoning, formulating) |
-| **Deep research** | `~/.openclaw/runtime/deep-research-<slug>.pid` + `~/research/<slug>/session_state.json` |
-| **Queue state** | `~/.openclaw/runtime/queue.db` (SQLite: `state`, `events`, `findings`) |
-| **Knowledge graph** | `~/.openclaw/runtime/knowledge.db` (nodes, entities_extracted) |
+| **Deep research** | `~/hephaestus/runtime/deep-research-<slug>.pid` + `~/research/<slug>/session_state.json` |
+| **Queue state** | `~/hephaestus/runtime/queue.db` (SQLite: `state`, `events`, `findings`) |
+| **Knowledge graph** | `~/hephaestus/runtime/knowledge.db` (nodes, entities_extracted) |
 | **Cron** | `hermes cron list` → `[active]` count |
 | **Services** | `launchctl list` (gateway), `curl localhost:5600` (AW), `curl 10.13.235.10:8888` (SearXNG) |
 

@@ -1,0 +1,109 @@
+---
+title: "HephaestusBar: macOS Menu Bar Dashboard for Lab Control"
+date: "2026-03-25"
+tags: ["hardware", "hephaestus", "swiftui", "monitoring", "menubar", "openclaw"]
+project: hephaestus
+images:
+  - "/artifacts/hephaestus/hephaestusbar-menu.png"
+  - "/artifacts/hephaestus/hephaestusbar-services.png"
+  - "/artifacts/hephaestus/hephaestusbar-deep-research.png"
+anomaly: false
+---
+
+SwiftUI menu bar app (`MenuBarExtra`) for real-time observability and control of the Hephaestus lab stack. Replaces ad-hoc `ssh` + `tmux` checks with a persistent, glanceable HUD.
+
+<br />
+
+### Motivation
+
+The Hephaestus machine runs: Proxmox (attacker/victim/sensor VMs), Tesla P40 (CUDA), dual ConnectX-3 (40 Gb/s InfiniBand), Hermes gateway (Discord bot), Sophia curiosity (automated research), deep-research agents, ActivityWatch, SearXNG.
+
+Before: checking state meant `ssh hephaestus` → `tmux attach` → run status scripts. Slow, context-switching, easy to miss CUDA lock contention or silent gateway crashes.
+
+After: menu bar icon shows live state; dropdown exposes monitoring + controls.
+
+<br />
+
+### Architecture
+
+**Single SwiftUI app** (`~/.openclaw/menubar/Sources/HephaestusBar/main.swift` — ~1000 lines):
+
+| Layer | Mechanism |
+|-------|-----------|
+| **Fast poll (10s)** | Native `FileManager` only: `/tmp/cuda-inference.lock` (holder, PID, ts), `~/.hermes/logs/gateway.log` (tail for "pondering"/"reasoning"), PID files in `~/.openclaw/runtime/deep-research-*.pid` |
+| **Full refresh (60s)** | Shell calls: `sqlite3` on `queue.db` + `knowledge.db`, `launchctl list`, `curl` health checks (ActivityWatch, SearXNG), `hermes cron list` |
+| **Composite activity** | Priority: Agent thinking → Deep research (LLM call) → Deep research (idle) → CUDA lock holder → Run All → Send Summary → Idle |
+| **Menu bar icon** | Dynamic: `bolt.fill` (normal), `microscope` (research), `brain.head.profile` (agent), `lock.fill` (CUDA locked), with counters (research cycles / agent elapsed / lock age) |
+
+<br />
+
+### Features
+
+**Monitoring (always visible):**
+- **System health**: Mode (B/A/R), CUDA reachable, cron job count
+- **Current activity**: Live label + icon + detail (e.g. "Deep research — LLM call · cycle 3")
+- **Knowledge graph**: Node count, pending NER
+- **Services**: Gateway, ActivityWatch, SearXNG (expandable toggles)
+- **Autoresearch**: Experiment count, start/stop (when mode=R)
+
+**Controls:**
+- **Agent**: Full Start / Full Stop (gateway + observe pipeline)
+- **Deep research**: Pause / Stop / Open report (when active)
+- **CUDA lock**: Break (emergency release)
+- **Run All**: Observe → Sophia → Extract Entities → Generate Digest
+- **Send Summary**: Observe → check findings → deliver
+- **More**: Extract Entities, Run Sophia, Generate Digest, Open logs, Open Obsidian vault
+
+<br />
+
+### Build & Install
+
+```bash
+cd ~/.openclaw/menubar
+swift build -c release
+# Binary: .build/release/HephaestusBar
+# Or open .build/release/HephaestusBar.app
+```
+
+Add to **Login Items** (System Settings → General → Login Items) for auto-launch.
+
+<br />
+
+### Integration Points
+
+| Component | Interface |
+|-----------|-----------|
+| **CUDA lock** | `/tmp/cuda-inference.lock/{holder,pid,ts}` (created by `cuda-lock.sh`) |
+| **Gateway log** | `~/.hermes/logs/gateway.log` (keywords: pondering, musing, reflecting, reasoning, formulating) |
+| **Deep research** | `~/.openclaw/runtime/deep-research-<slug>.pid` + `~/research/<slug>/session_state.json` |
+| **Queue state** | `~/.openclaw/runtime/queue.db` (SQLite: `state`, `events`, `findings`) |
+| **Knowledge graph** | `~/.openclaw/runtime/knowledge.db` (nodes, entities_extracted) |
+| **Cron** | `hermes cron list` → `[active]` count |
+| **Services** | `launchctl list` (gateway), `curl localhost:5600` (AW), `curl 10.13.235.10:8888` (SearXNG) |
+
+<br />
+
+### Screenshots
+
+<details open>
+<summary>Menu dropdown — default state</summary>
+<img src="/artifacts/hephaestus/hephaestusbar-menu.png" alt="HephaestusBar menu — health, activity, services, actions" loading="lazy" />
+</details>
+
+<details>
+<summary>Services expanded</summary>
+<img src="/artifacts/hephaestus/hephaestusbar-services.png" alt="HephaestusBar services toggles" loading="lazy" />
+</details>
+
+<details>
+<summary>Deep research active</summary>
+<img src="/artifacts/hephaestus/hephaestusbar-deep-research.png" alt="HephaestusBar deep research controls" loading="lazy" />
+</details>
+
+<br />
+
+### Related
+
+- [Hephaestus hardware page](/projects/hephaestus) — the machine this monitors
+- [LLM Stack on Hephaestus](/logbook/2026-01-27-llm-stack-qwen) — llama.cpp + Qwen + Open WebUI
+- [Bastion VM Build](/logbook/2026-01-27-bastion-build) — SSH jump host for lab access

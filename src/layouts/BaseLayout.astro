@@ -12,25 +12,12 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
 const description = `${profile.professionalTitle}: extended technical archive covering security, LLM systems, local AI infrastructure, GPU/network research, hardware, and RF.`;
 const structuredData = {
   '@context': 'https://schema.org',
-  '@graph': [
-    {
-      '@type': 'WebSite',
-      name: "Kayra's Workshop Almanac",
-      url: Astro.site,
-      description,
-      dateModified: profile.siteUpdated,
-      author: { '@id': `${profile.links.portfolio}#person` },
-    },
-    {
-      '@type': 'Person',
-      '@id': `${profile.links.portfolio}#person`,
-      name: profile.name,
-      jobTitle: profile.professionalTitle,
-      url: profile.links.portfolio,
-      email: `mailto:${profile.email}`,
-      sameAs: [profile.links.github, profile.links.linkedin],
-    },
-  ],
+  '@type': 'WebSite',
+  name: "Kayra's Workshop Almanac",
+  url: Astro.site,
+  description,
+  inLanguage: 'en',
+  dateModified: profile.siteUpdated,
 };
 ---
 <html lang="en">
